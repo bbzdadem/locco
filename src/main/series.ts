@@ -176,6 +176,19 @@ export async function reviseScript(s: Series, index: number, scenes: Scene[], ch
   ].join('\n\n'), change)))
 }
 
+// Sharpens an episode summary (the brief its script is written from) using the story bible and earlier episodes.
+// A short idea becomes hook, turn and punchline; a detailed script keeps every line, name, fact and timing, tidied into beats.
+export async function improveSummary(s: Series, index: number, text: string) {
+  return complete(WRITER, [
+    'You edit the brief for one episode of a vertical short series; a script will be written from it.',
+    storySoFar(s, index),
+    `This is episode ${index + 1}, about ${s.seconds} seconds.`,
+    'If the brief is short or vague: rewrite it as 2-4 sentences with a hook in the first seconds, a clear turn and a punchline or cliffhanger, consistent with the story so far.',
+    'If it is already detailed (beats, timings, dialogue): keep every line of dialogue, name, fact and timing exactly; only tidy it into clear numbered beats and fix gaps.',
+    'Reply with the brief only: plain text (no Markdown, no bold), no preamble, in the language it was written in.',
+  ].join('\n\n'), text.trim() || '(empty: propose a strong next episode)')
+}
+
 // After an episode is cut: a short recap for the next scripts, and the continuity notes brought up to date.
 export async function writeRecap(s: Series, index: number): Promise<{ recap: string; continuity: string }> {
   const ep = s.episodes[index]

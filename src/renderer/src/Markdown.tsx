@@ -3,11 +3,12 @@ import { memo, useRef, useState, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import rehypeHighlight from 'rehype-highlight'
 import remarkGfm from 'remark-gfm'
+import { api } from './lib'
 
 export function useCopy() {
   const [copied, setCopied] = useState(false)
   const copy = (text: string) => {
-    navigator.clipboard.writeText(text).then(() => {
+    api.copy(text).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 1400)
     })

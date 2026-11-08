@@ -27,7 +27,7 @@ const toChat = (r: any): Chat => ({
 })
 
 export const listChats = () =>
-  db.prepare('SELECT id, title, model, updated_at, pinned, project_id, summary_upto FROM chats ORDER BY pinned DESC, updated_at DESC').all().map(toChat)
+  db.prepare('SELECT id, title, model, updated_at, pinned, project_id, summary_upto FROM chats ORDER BY COALESCE(pinned, 0) DESC, updated_at DESC').all().map(toChat) // unpinned (0) and never pinned (NULL) sort alike
 export const getMessages = (chatId: string) =>
   db.prepare('SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at, rowid').all(chatId).map(toMessage)
 // Finds chats by title or by anything said in them, newest first.

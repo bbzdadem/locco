@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, nativeTheme, protocol, safeStorage, session, shell, systemPreferences } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, nativeTheme, protocol, safeStorage, session, shell, systemPreferences } from 'electron'
 import { createReadStream } from 'node:fs'
 import { copyFile, stat, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
@@ -16,7 +16,7 @@ import { credits, setKey } from './kie'
 import { mimeOf, pathOf, saveUpload } from './media'
 import {
   deleteCharacter, deletedSeries, deleteSeries, listCharacters, listSeries, mediaSeconds, render, restoreSeries, reviseScript, saveCharacter, saveSeries,
-  writeRecap, writeScript, writeSeries,
+  improveSummary, writeRecap, writeScript, writeSeries,
 } from './series'
 import { generate, listTasks, removeTask, starTask, startPoller, transcribe } from './tasks'
 
@@ -147,6 +147,7 @@ app.whenReady().then(async () => {
     return settings()
   })
   ipcMain.handle('credits', () => credits())
+  ipcMain.handle('clipboard:write', (_e, text: string) => clipboard.writeText(String(text)))
   ipcMain.handle('eleven:voices', () => ELEVEN_VOICES)
   ipcMain.handle('eleven:refresh', async () => (setElevenVoices(await allVoices()), ELEVEN_VOICES))
   ipcMain.handle('eleven:add', async (_e, text: string) => {
@@ -183,6 +184,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('series:script', (_e, s: Series, index: number) => writeScript(s, index))
   ipcMain.handle('series:revise', (_e, s: Series, index: number, scenes: Scene[], change: string) => reviseScript(s, index, scenes, change))
   ipcMain.handle('series:recap', (_e, s: Series, index: number) => writeRecap(s, index))
+  ipcMain.handle('series:improve', (_e, s: Series, index: number, text: string) => improveSummary(s, index, text))
   ipcMain.handle('series:render', (_e, req: RenderRequest) => render(req))
   ipcMain.handle('characters:list', listCharacters)
   ipcMain.handle('characters:save', (_e, c: Character) => saveCharacter(c))

@@ -1,5 +1,5 @@
 import { ArrowRight, Check, ChevronLeft, ChevronRight, Clapperboard, Download, FileText, Film, ImagePlus, LoaderCircle, Plus, RotateCcw, Square, TriangleAlert, Wand2, X } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { buildInput } from '../../shared/inputs'
 import { ELEVEN_VOICES, withBest } from '../../shared/models'
 import { estimate, priceLabel } from '../../shared/prices'
@@ -7,7 +7,7 @@ import type { Character, Episode, Scene, Series, Step } from '../../shared/types
 import { Avatar } from './Characters'
 import { Media } from './Create'
 import { episodeProject } from './Studio'
-import { api, mediaUrl } from './lib'
+import { api, errMsg, mediaUrl } from './lib'
 import {
   castOf, clipFor, defaultEdit, editPrompt, elementsOf, fileOf, getSeries, img, IMAGE_MODELS, makeAll, makeOne, model, motionPrompt, needs, ready, refsOf, type Run, scenePrompt,
   sceneRefs, setRun, stateOf, step, type Tasks, timing, toRender, updateSeries, VIDEO_MODELS, videoValues, voiceFor, voiceName,
@@ -46,8 +46,7 @@ export function EpisodeView(props: Props) {
           <span className="text-faint tabular-nums">Episode {index + 1}</span>
           <input aria-label="Episode title" value={ep.title} onChange={(e) => setEp((x) => void (x.title = e.target.value))} className="min-w-0 flex-1 bg-transparent text-lg font-semibold" />
         </div>
-        <textarea aria-label="Episode summary" rows={2} value={ep.summary} placeholder="What happens: the hook, the turn, the punchline."
-          onChange={(e) => setEp((x) => void (x.summary = e.target.value))} className={`${field} resize-none`} />
+        <Summary s={s} ep={ep} index={index} setEp={setEp} />
         <div className="flex flex-wrap items-center gap-1">
           {STEPS.map(([k, label], i) => (
             <button key={k} type="button" disabled={i > reached} onClick={() => setView(k)}
@@ -530,6 +529,52 @@ function Timeline({ scenes, selected, onPick }: { scenes: Scene[]; selected?: st
           </button>
         )
       })}
+    </div>
+  )
+}
+
+// The episode's brief: grows with its text (up to a point, then scrolls). Improve rewrites it from the story bible;
+// Undo brings back what you had.
+function Summary({ s, ep, index, setEp }: { s: Series; ep: Episode; index: number; setEp: (fn: (e: Episode) => void) => Promise<void> }) {
+  const area = useRef<HTMLTextAreaElement>(null)
+  const [busy, setBusy] = useState(false)
+  const [before, setBefore] = useState<string | null>(null)
+  const [error, setError] = useState('')
+  const fit = () => {
+    const el = area.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(Math.max(el.scrollHeight + el.offsetHeight - el.clientHeight, 64), 280)}px` // + borders
+  }
+  useLayoutEffect(fit, [ep.summary])
+  useEffect(() => (addEventListener('resize', fit), () => removeEventListener('resize', fit)), [])
+  async function improve() {
+    setBusy(true)
+    setError('')
+    try {
+      const text = await api.improveSummary(getSeries(s.id), index, ep.summary)
+      setBefore(ep.summary)
+      await setEp((x) => void (x.summary = text))
+    } catch (e) {
+      setError(errMsg(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="relative">
+      <textarea ref={area} aria-label="Episode summary" value={ep.summary} placeholder="What happens: the hook, the turn, the punchline. A line is enough; Improve fills it out."
+        onChange={(e) => (setBefore(null), void setEp((x) => void (x.summary = e.target.value)))} className={`${field} resize-none pr-28 pb-8`} />
+      <div className="absolute right-2 bottom-2 flex items-center gap-1.5">
+        {before !== null && !busy && (
+          <button type="button" onClick={() => (void setEp((x) => void (x.summary = before)), setBefore(null))} className="text-xs text-muted underline underline-offset-2 hover:text-fg">Undo</button>
+        )}
+        <button type="button" disabled={busy} onClick={improve} title="Rewrite with GPT 6 Sol from the story bible: a short idea becomes hook, turn and punchline; a detailed script keeps every line and is tidied into beats"
+          className="inline-flex h-7 items-center gap-1 rounded-full border border-line bg-surface px-2.5 text-xs text-muted hover:text-fg disabled:opacity-40">
+          {busy ? <LoaderCircle size={12} className="animate-spin" /> : <Wand2 size={12} />} Improve
+        </button>
+      </div>
+      {error && <p className="mt-1 text-xs text-danger">{error}</p>}
     </div>
   )
 }

@@ -5,7 +5,7 @@ import { estimate, priceLabel } from '../../shared/prices'
 import type { Character, Series } from '../../shared/types'
 import { ACCEPT_IMAGES, api, errMsg, mediaUrl, toAttachments } from './lib'
 import { fileOf, getChar, img, makeOne, portraitPrompt, removeChar, saveChar, sheetPrompt, stateOf, type Tasks, updateChar, voiceName } from './seriesStore'
-import { IconButton } from './ui'
+import { IconButton, SelectChip } from './ui'
 import { VoiceTools } from './Voices'
 
 const CHAR_MODEL = 'gpt-image-2'
@@ -100,7 +100,8 @@ export function CharacterBuilder({ id, tasks, usedIn, onClose }: { id: string; t
   const sheet = fileOf(tasks, c.sheetTask)
   const canPortraits = !!c.name.trim() && (!!c.look.trim() || !!c.photo)
   // A voice from before the ElevenLabs switch (kie's list) may not exist in the account; it doesn't count until replaced.
-  const known = ELEVEN_VOICES.some((v) => v.id === c.voice)
+  const voice = ELEVEN_VOICES.find((v) => v.id === c.voice)
+  const known = !!voice
   const el = c.kind === 'element'
   const shape = el ? (c.category === 'place' ? '9:16' : '1:1') : '3:4'
   const each = priceLabel(estimate(CHAR_MODEL, { resolution: '1K' }))
@@ -214,18 +215,14 @@ export function CharacterBuilder({ id, tasks, usedIn, onClose }: { id: string; t
 
         {!el && <Section n={4} title="Voice" done={known}>
           <div className="flex flex-wrap items-center gap-2">
-            <select aria-label="Voice" value={c.voice ?? ''} onChange={(e) => set({ voice: e.target.value || undefined })} className={`${box} max-w-80`}>
-              <option value="">{ELEVEN_VOICES.length ? 'Pick a voice' : 'Add your ElevenLabs key in Settings'}</option>
-              {c.voice && !known && <option value={c.voice}>Old voice, not in your ElevenLabs voices: pick another</option>}
-              {ELEVEN_VOICES.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.name.split(' - ')[0]}{v.about ? ` (${v.about})` : ''}
-                </option>
-              ))}
-            </select>
+            <SelectChip title="Voice" value={known ? c.voice! : ''} muted={!known} onChange={(v) => set({ voice: v || undefined })}
+              label={known ? <span className="max-w-56 truncate">{voice!.name.split(' - ')[0]}</span> : ELEVEN_VOICES.length ? 'Pick a voice' : 'Add your ElevenLabs key in Settings'}
+              options={[{ value: '', label: 'Pick a voice' }, ...ELEVEN_VOICES.map((v) => ({ value: v.id, label: `${v.name.split(' - ')[0]}${v.about ? ` (${v.about})` : ''}` }))]} />
             <HearIt c={c} />
             <VoiceTools onChange={(added) => (added ? set({ voice: added }) : redraw((n) => n + 1))} />
           </div>
+          {known && voice!.about && <p className="-mt-1 text-xs text-faint">{voice!.about}</p>}
+          {c.voice && !known && <p className="-mt-1 text-xs text-faint">The old voice isn't in your ElevenLabs voices; pick another.</p>}
         </Section>}
 
         {error && <p className="text-[13px] text-danger">{error}</p>}

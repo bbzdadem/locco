@@ -16,6 +16,7 @@ const api = {
   refreshVoices: (): Promise<Voice[]> => ipcRenderer.invoke('eleven:refresh'),
   addVoice: (text: string): Promise<{ voice: Voice; list: Voice[] }> => ipcRenderer.invoke('eleven:add', text),
   credits: (): Promise<number> => ipcRenderer.invoke('credits'),
+  copy: (text: string): Promise<void> => ipcRenderer.invoke('clipboard:write', text),
   usage: (): Promise<UsageRow[]> => ipcRenderer.invoke('usage'),
 
   chats: (): Promise<Chat[]> => ipcRenderer.invoke('chats:list'),
@@ -39,6 +40,7 @@ const api = {
   writeScript: (s: Series, index: number): Promise<Scene[]> => ipcRenderer.invoke('series:script', s, index),
   reviseScript: (s: Series, index: number, scenes: Scene[], change: string): Promise<Scene[]> => ipcRenderer.invoke('series:revise', s, index, scenes, change),
   writeRecap: (s: Series, index: number): Promise<{ recap: string; continuity: string }> => ipcRenderer.invoke('series:recap', s, index),
+  improveSummary: (s: Series, index: number, text: string): Promise<string> => ipcRenderer.invoke('series:improve', s, index, text),
   render: (req: RenderRequest): Promise<string> => ipcRenderer.invoke('series:render', req),
   characters: (): Promise<Character[]> => ipcRenderer.invoke('characters:list'),
   saveCharacter: (c: Character): Promise<void> => ipcRenderer.invoke('characters:save', c),
