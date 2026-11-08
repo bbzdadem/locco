@@ -1,12 +1,12 @@
 // The chat assistant's one tool: make an image or a video with any model in the Create studio.
 import { randomUUID } from 'node:crypto'
 import { buildInput, current, fill, slotLabel, slotsOf } from '../shared/inputs'
-import { generators, MEDIA_MODELS } from '../shared/models'
+import { bestFor, generators, MEDIA_MODELS } from '../shared/models'
 import { estimate, priceLabel } from '../shared/prices'
 import type { Attachment, MediaKind, MediaModel, ToolCall } from '../shared/types'
 
 export const TOOL = 'generate_media'
-const DEFAULT: Record<MediaKind, string> = { image: 'nano-banana-pro', video: 'kling-3', audio: 'suno' }
+const DEFAULT: Record<MediaKind, string> = { image: 'gpt-image-2', video: 'kling-3', audio: 'suno' }
 const all = () => [...generators('image'), ...generators('video'), ...generators('audio')]
 
 const parameters = () => ({
@@ -42,11 +42,11 @@ export function systemAddon() {
     const defaults = buildInput(m, {}, {}).input
     const voices = spec.fields.find((f) => f.enumLabels)?.enumLabels
     const named = voices ? ` Voices: ${Object.entries(voices).slice(0, 12).map(([id, n]) => `${n}=${id}`).join(', ')}.` : ''
-    return `- ${m.id} (${m.kind}, ${m.label}; ${images}; ${priceLabel(estimate(m.id, defaults, 1000))}): ${settings.filter((s) => !s.startsWith('voice=')).join('; ')}${named}`
+    return `- ${m.id} (${m.kind}, ${m.label}; best for: ${bestFor(m.id) || 'general use'}; ${images}; ${priceLabel(estimate(m.id, defaults, 1000))}): ${settings.filter((s) => !s.startsWith('voice=')).join('; ')}${named}`
   })
   return [
     'You can make images, videos, music and speech with the generate_media tool. Use it whenever the user asks for a picture, photo, illustration, logo, edit, animation, video, song, jingle, soundtrack or voice-over.',
-    'Pick the model that fits: nano-banana-pro for general images and edits, gpt-image-2 or ideogram-v3 for text in images, kling-3 or veo-3-1 for video, grok-imagine for cheap quick video tests, suno for songs and music, tts-turbo for a voice reading text.',
+    'Pick the model that fits (each line says what it is best for). Use gpt-image-2 for images unless the user names another model or the job clearly needs one: nano-banana-pro for mixing several reference images, ideogram-v3 for posters and lettering, kling-3 or veo-3-1 for video, grok-imagine for cheap quick video tests, suno for songs and music, tts-turbo for a voice reading text.',
     'To edit, combine or animate an image, pass its id in `images`. Results you made earlier are listed in the chat with their ids.',
     'After calling the tool, say in one short sentence what you started. Do not claim it is finished: the user sees it appear.',
     'Catalog (settings use these exact values):',

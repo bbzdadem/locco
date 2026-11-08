@@ -101,3 +101,33 @@ export type GenerateRequest = { modelId: string; variant: Variant; prompt: strin
 export type Settings = { hasKey: boolean; keySource: 'saved' | 'env' | null; about: string; model: string; agentBudget: number }
 // Credits spent per day and model. extra = prompt improvements and chat summaries.
 export type UsageRow = { day: string; source: 'chat' | 'media' | 'extra'; model: string; credits: number }
+
+// A short series: a bible (characters, style) and episodes made of shots. Generations are referenced by task id.
+export type Character = { id: string; name: string; look: string; personality: string; voice?: string; portraitTask?: string }
+export type Shot = {
+  id: string
+  description: string
+  camera: string
+  speaker: string
+  line: string
+  frameTask?: string
+  videoTask?: string
+  voiceTask?: string
+  reviewed?: boolean
+}
+export type Episode = { id: string; title: string; summary: string; shots: Shot[]; musicTask?: string; cut?: string }
+export type Series = {
+  id: string
+  title: string
+  idea: string
+  logline: string
+  style: string
+  seconds: number
+  imageModel: string
+  videoModel: string
+  characters: Character[]
+  episodes: Episode[]
+  createdAt: number
+}
+// One cut: shot videos in order, an optional voice line per shot, and a music bed.
+export type CutRequest = { name: string; shots: { video: string; voice?: string }[]; music?: string }

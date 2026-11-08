@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { Attachment, Chat, ChatEvent, ChatHit, GenerateRequest, MediaKind, Message, Project, Ref, SendRequest, Settings, Task, UsageRow } from '../shared/types'
+import type { Attachment, Chat, ChatEvent, ChatHit, CutRequest, GenerateRequest, MediaKind, Message, Project, Ref, SendRequest, Series, Settings, Shot, Task, UsageRow } from '../shared/types'
 
 const on = <T>(channel: string) => (cb: (v: T) => void) => {
   const handler = (_e: unknown, v: T) => cb(v)
@@ -24,6 +24,14 @@ const api = {
   projects: (): Promise<Project[]> => ipcRenderer.invoke('projects:list'),
   saveProject: (p: Partial<Project>): Promise<Project> => ipcRenderer.invoke('projects:save', p),
   deleteProject: (id: string): Promise<void> => ipcRenderer.invoke('projects:delete', id),
+  series: (): Promise<Series[]> => ipcRenderer.invoke('series:list'),
+  saveSeries: (s: Series): Promise<void> => ipcRenderer.invoke('series:save', s),
+  deleteSeries: (id: string): Promise<void> => ipcRenderer.invoke('series:delete', id),
+  writeSeries: (idea: string, episodes: number, seconds: number): Promise<Series> => ipcRenderer.invoke('series:write', idea, episodes, seconds),
+  writeEpisode: (s: Series, index: number, shotSeconds: number): Promise<Shot[]> => ipcRenderer.invoke('series:episode', s, index, shotSeconds),
+  reviewFrames: (portraits: { name: string; file: string }[], frames: { n: number; description: string; file: string }[]): Promise<{ shot: number; fix: string }[]> =>
+    ipcRenderer.invoke('series:review', portraits, frames),
+  cut: (req: CutRequest): Promise<string> => ipcRenderer.invoke('series:cut', req),
   send: (req: SendRequest): Promise<void> => ipcRenderer.invoke('chat:send', req),
   regenerate: (chatId: string, model: string, thinking: boolean, agent: boolean): Promise<void> =>
     ipcRenderer.invoke('chat:regenerate', chatId, model, thinking, agent),

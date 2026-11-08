@@ -4,10 +4,11 @@ import { ChatView } from './Chat'
 import { Create } from './Create'
 import { api, load, save } from './lib'
 import { ProjectView } from './Project'
+import { SeriesView } from './Series'
 import { SettingsDialog, UsageDialog } from './Settings'
 import { Sidebar } from './Sidebar'
 
-type View = { kind: 'chat'; id: string; draft?: Attachment[]; projectId?: string } | { kind: 'create' } | { kind: 'project'; id: string }
+type View = { kind: 'chat'; id: string; draft?: Attachment[]; projectId?: string } | { kind: 'create' } | { kind: 'series' } | { kind: 'project'; id: string }
 
 export default function App() {
   const [view, setView] = useState<View>(() => ({ kind: 'chat', id: crypto.randomUUID() }))
@@ -58,6 +59,8 @@ export default function App() {
           activeId={view.kind === 'chat' ? view.id : null}
           activeProjectId={view.kind === 'project' ? view.id : null}
           createActive={view.kind === 'create'}
+          seriesActive={view.kind === 'series'}
+          onSeries={() => setView({ kind: 'series' })}
           credits={credits}
           lowBalance={lowBalance}
           onSelect={(id) => setView({ kind: 'chat', id })}
@@ -84,6 +87,8 @@ export default function App() {
             onOpenProject={(id) => setView({ kind: 'project', id })}
             onChanged={() => (refreshChats(), refreshCredits())}
           />
+        ) : view.kind === 'series' ? (
+          <SeriesView header={header} onChanged={refreshCredits} />
         ) : view.kind === 'project' && projectOf(view.id) ? (
           <ProjectView
             key={view.id}

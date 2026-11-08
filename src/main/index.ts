@@ -4,7 +4,7 @@ import { copyFile, stat, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { Readable } from 'node:stream'
 import { chatModel } from '../shared/models'
-import type { ChatEvent, GenerateRequest, MediaKind, Project, Ref, SendRequest, Settings } from '../shared/types'
+import type { ChatEvent, CutRequest, GenerateRequest, MediaKind, Project, Ref, SendRequest, Series, Settings } from '../shared/types'
 import {
   cancelCall, deleteChat, deleteProject, enhancePrompt, exportMarkdown, getMessages, listChats, listProjects, moveChat, pinChat, regenerate,
   renameChat, runCall, saveProject, searchChats, send, stopChat,
@@ -12,6 +12,7 @@ import {
 import { dirs, getSetting, openDb, setSetting, usage } from './db'
 import { credits, setKey } from './kie'
 import { mimeOf, pathOf, saveUpload } from './media'
+import { cut, deleteSeries, listSeries, reviewFrames, saveSeries, writeEpisode, writeSeries } from './series'
 import { generate, listTasks, removeTask, starTask, startPoller, transcribe } from './tasks'
 
 let win: BrowserWindow | null = null
@@ -137,6 +138,14 @@ app.whenReady().then(async () => {
   ipcMain.handle('projects:list', listProjects)
   ipcMain.handle('projects:save', (_e, p: Partial<Project>) => saveProject(p))
   ipcMain.handle('projects:delete', (_e, id: string) => deleteProject(id))
+  ipcMain.handle('series:list', listSeries)
+  ipcMain.handle('series:save', (_e, s: Series) => saveSeries(s))
+  ipcMain.handle('series:delete', (_e, id: string) => deleteSeries(id))
+  ipcMain.handle('series:write', (_e, idea: string, episodes: number, seconds: number) => writeSeries(idea, episodes, seconds))
+  ipcMain.handle('series:episode', (_e, s: Series, index: number, shotSeconds: number) => writeEpisode(s, index, shotSeconds))
+  ipcMain.handle('series:review', (_e, portraits: { name: string; file: string }[], frames: { n: number; description: string; file: string }[]) =>
+    reviewFrames(portraits, frames))
+  ipcMain.handle('series:cut', (_e, req: CutRequest) => cut(req))
   ipcMain.handle('chat:send', (_e, req: SendRequest) => send(req, emit))
   ipcMain.handle('chat:regenerate', (_e, id: string, model: string, thinking: boolean, agent: boolean) => regenerate(id, model, thinking, agent, emit))
   ipcMain.handle('chat:stop', (_e, id: string) => void stopChat(id))

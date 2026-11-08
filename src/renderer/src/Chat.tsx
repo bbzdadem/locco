@@ -1,6 +1,6 @@
 import { ArrowUp, Brain, Check, ChevronDown, Clapperboard, Copy, Download, FileDown, FileText, Folder, FolderOpen, Image, LoaderCircle, Mic, Music, Paperclip, Pause, Pencil, RotateCcw, Route, Square, TriangleAlert, Volume2, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { CHAT_MODELS, chatModel } from '../../shared/models'
+import { bestFor, CHAT_MODELS, chatModel, withBest } from '../../shared/models'
 import { estimate, priceLabel, USD_PER_CREDIT } from '../../shared/prices'
 import type { Attachment, Chat, Message, Project, Task, ToolCall } from '../../shared/types'
 import { ACCEPT_CHAT, api, errMsg, fmtCredits, load, mediaUrl, save, toAttachments } from './lib'
@@ -596,11 +596,11 @@ function Composer({ busy, autoFocus, initialFiles, model, onModel, thinking, onT
           onChange={(e) => (e.target.files && add(e.target.files), (e.target.value = ''))}
         />
         <SelectChip
-          title="Model"
+          title={`Model: ${bestFor(model)}`}
           label={chatModel(model).label}
           value={model}
           onChange={onModel}
-          options={CHAT_MODELS.map((m) => ({ value: m.id, label: m.label }))}
+          options={CHAT_MODELS.map((m) => ({ value: m.id, label: withBest(m.label, m.id) }))}
         />
         <button
           type="button"

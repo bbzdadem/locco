@@ -28,7 +28,13 @@
         "NSMicrophoneUsageDescription": "locco uses the microphone only while you dictate a message."
       },
       "icon": "build/icon.icns"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "node_modules/ffmpeg-static/ffmpeg",
+        "to": "ffmpeg"
+      }
+    ]
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.5",
@@ -39,6 +45,7 @@
     "electron": "^45.2.3",
     "electron-builder": "^26.18.0",
     "electron-vite": "^6.0.0",
+    "ffmpeg-static": "^5.3.0",
     "lucide-react": "^1.70.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",

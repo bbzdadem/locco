@@ -1,6 +1,6 @@
 import { FolderOpen, X } from 'lucide-react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { CHAT_MODELS, chatModel } from '../../shared/models'
+import { CHAT_MODELS, chatModel, withBest } from '../../shared/models'
 import { USD_PER_CREDIT } from '../../shared/prices'
 import type { Settings, UsageRow } from '../../shared/types'
 import { api, errMsg, fmtCredits } from './lib'
@@ -90,7 +90,7 @@ export function SettingsDialog({ settings, onClose, onSaved }: { settings: Setti
           <select id="default-model" value={model} onChange={(e) => setModel(e.target.value)} className="h-10 rounded-xl border border-line bg-bg px-3">
             {CHAT_MODELS.map((m) => (
               <option key={m.id} value={m.id}>
-                {m.label}
+                {withBest(m.label, m.id)}
               </option>
             ))}
           </select>

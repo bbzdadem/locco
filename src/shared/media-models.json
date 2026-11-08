@@ -2596,11 +2596,6 @@
           "description": "Whether to enable sequential/group image mode. Default is false."
         },
         {
-          "name": "n",
-          "type": "integer",
-          "description": "Number of images to generate. Range is 1-4 when `enable_sequential=false` (default: 4); range is 1-12 when `enable_sequential=true` (default: 12)."
-        },
-        {
           "name": "resolution",
           "type": "string",
           "enum": [
@@ -2628,7 +2623,10 @@
           "max": 2147483647,
           "description": "Optional. Omit for a random seed."
         }
-      ]
+      ],
+      "fixed": {
+        "n": 1
+      }
     },
     "prices": [
       {
@@ -2683,11 +2681,6 @@
           "description": "Whether to enable sequential/group image mode. Default is false."
         },
         {
-          "name": "n",
-          "type": "integer",
-          "description": "Number of images to generate. Range is 1-4 when `enable_sequential=false` (default: 4); range is 1-12 when `enable_sequential=true` (default: 12)."
-        },
-        {
           "name": "resolution",
           "type": "string",
           "enum": [
@@ -2716,7 +2709,10 @@
           "max": 2147483647,
           "description": "Optional. Omit for a random seed."
         }
-      ]
+      ],
+      "fixed": {
+        "n": 1
+      }
     },
     "prices": [
       {

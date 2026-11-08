@@ -1,6 +1,6 @@
 import { AudioLines, Clapperboard, Download, Image, ImagePlus, LoaderCircle, Maximize2, MessageSquare, Music, Play, Plus, RotateCcw, Scissors, SlidersHorizontal, Sparkles, Star, Trash2, TriangleAlert, WandSparkles, X } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
-import { generators, kindOf, MEDIA_MODELS } from '../../shared/models'
+import { bestFor, generators, kindOf, MEDIA_MODELS, withBest } from '../../shared/models'
 import { buildInput, capOf, fill, isMain, refList, resolveMentions, slotLabel, slotsOf, valid, current, type Refs } from '../../shared/inputs'
 import { estimate, priceLabel } from '../../shared/prices'
 import type { Attachment, Field, MediaKind, Task } from '../../shared/types'
@@ -84,9 +84,12 @@ function useColumns(ref: RefObject<HTMLDivElement | null>) {
 export function Create({ header, onChanged, onSendToChat }: { header: HeaderProps; onChanged: () => void; onSendToChat: (a: Attachment) => void }) {
   const [tasks, setTasks] = useState<Task[]>([])
   const [tab, setTab] = useState<MediaKind>(() => load('create.tab', 'image'))
-  const [modelIds, setModelIds] = useState<Record<MediaKind, string>>(() =>
-    load('create.models', { image: generators('image')[0].id, video: generators('video')[0].id, audio: generators('audio')[0].id }),
-  )
+  const [modelIds, setModelIds] = useState<Record<MediaKind, string>>(() => {
+    const saved = load('create.models', { image: 'gpt-image-2', video: generators('video')[0].id, audio: generators('audio')[0].id })
+    // GPT Image 2 became the default image model on 8 Nov 2026; switch existing setups over once.
+    if (!load('create.gptDefault', false)) (saved.image = 'gpt-image-2'), save('create.models', saved), save('create.gptDefault', true)
+    return saved
+  })
   const [values, setValues] = useState<Record<string, Record<string, unknown>>>(() => load('create.values', {}))
   const [prompt, setPrompt] = useState(() => load('create.prompt', ''))
   const [refs, setRefs] = useState<Refs>({})
@@ -439,8 +442,9 @@ export function Create({ header, onChanged, onSendToChat }: { header: HeaderProp
               label={<><Sparkles size={13} /> {model.label}</>}
               value={model.id}
               onChange={(id) => pickModel(tab, id)}
-              options={list.map((m) => ({ value: m.id, label: m.label }))}
+              options={list.map((m) => ({ value: m.id, label: withBest(m.label, m.id) }))}
             />
+            {bestFor(model.id) && <span className="hidden h-8 max-w-60 items-center truncate text-xs text-faint lg:inline-flex" title={bestFor(model.id)}>{bestFor(model.id)}</span>}
             {chips.map((f) => {
               const cur = current(f, v[f.name])
               if (f.type === 'boolean')

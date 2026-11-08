@@ -34,6 +34,14 @@ assert.equal(credits('gpt-image-1-5', { quality: 'high' }).hi, 22)
 // Hand-checked prices still win.
 assert.equal(credits('nano-banana-pro', { resolution: '4K' }).hi, 24)
 
+// One request makes one result: models that default to several (Wan 2.7 Image makes 4, all billed) are pinned to 1.
+for (const m of MEDIA_MODELS) for (const sp of [m.text, m.image]) {
+  if (!sp) continue
+  const count = sp.fields.find((f) => /^(n|num_images|number_of_images|num_outputs)$/.test(f.name))
+  assert.ok(!count || count.default === undefined || Number(count.default) === 1, `${m.id} would make ${count?.default} results per request`)
+  assert.ok(!count || count.default !== undefined || sp.fixed?.[count.name] !== undefined || /default: ?1\b/.test(count.description), `${m.id}: ${count?.name} has no default; pin it in fixed`)
+}
+
 // @ mentions
 const a = img('a.png'), b = img('b.png')
 assert.equal(resolveMentions('from @img1 to @img2', model('kling-4-keyframes'), { first_frame_url: [a], last_frame_url: [b] }), 'from @first_frame to @last_frame')
