@@ -1,0 +1,53 @@
+{
+  "name": "locco",
+  "productName": "locco",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Personal AI app: chat and image studio on kie.ai",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "dist": "electron-vite build && electron-builder --mac --dir",
+    "sync-models": "node scripts/sync-models.mjs",
+    "typecheck": "tsc --noEmit",
+    "check": "rolldown scripts/check.ts --platform node --format esm -o node_modules/.cache/locco-check.mjs && node node_modules/.cache/locco-check.mjs",
+    "install-app": "npm run dist && osascript -e 'quit app \"locco\"'; ditto dist/mac-arm64/locco.app /Applications/locco.app && open /Applications/locco.app"
+  },
+  "build": {
+    "appId": "com.locco.app",
+    "productName": "locco",
+    "files": [
+      "out/**"
+    ],
+    "mac": {
+      "target": "dir",
+      "category": "public.app-category.productivity",
+      "identity": null,
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "locco uses the microphone only while you dictate a message."
+      },
+      "icon": "build/icon.icns"
+    }
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.5",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.2.1",
+    "electron": "^45.2.3",
+    "electron-builder": "^26.18.0",
+    "electron-vite": "^6.0.0",
+    "lucide-react": "^1.70.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-markdown": "^10.1.0",
+    "rehype-highlight": "^7.0.2",
+    "remark-gfm": "^4.0.1",
+    "tailwindcss": "^4.3.5",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.6",
+    "yaml": "^2.9.1"
+  }
+}

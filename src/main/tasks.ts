@@ -1,0 +1,137 @@
+import { shell } from 'electron'
+import { MEDIA_MODELS } from '../shared/models'
+import type { GenerateRequest, Ref, Task } from '../shared/types'
+import { db } from './db'
+import { current, isMain } from '../shared/inputs'
+import { createTask, taskInfo } from './kie'
+import { download, kieUrlFor, pathOf } from './media'
+
+let notify = () => {}
+
+const toTask = (r: any): Task => ({
+  id: r.id, modelId: r.model_id, variant: r.variant, label: r.label, prompt: r.prompt ?? '', input: JSON.parse(r.input || '{}'),
+  state: r.state, files: JSON.parse(r.files || '[]'), meta: JSON.parse(r.meta || 'null') ?? undefined, credits: r.credits ?? undefined, error: r.error ?? undefined,
+  starred: !!r.starred, projectId: r.project_id ?? undefined, createdAt: r.created_at, completedAt: r.completed_at ?? undefined,
+})
+export const listTasks = () => db.prepare('SELECT * FROM tasks ORDER BY created_at DESC').all().map(toTask)
+export const getTask = (id: string) => {
+  const r = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id)
+  return r ? toTask(r) : undefined
+}
+
+export async function generate(req: GenerateRequest): Promise<string[]> {
+  const model = MEDIA_MODELS.find((m) => m.id === req.modelId)
+  const spec = model?.[req.variant]
+  if (!model || !spec) throw new Error('That model is not available.')
+  // Build the kie input from the model's own field list. Local files become hosted URLs here.
+  const input: Record<string, unknown> = { ...spec.fixed }
+  for (const f of spec.fields) {
+    // Settings you didn't choose get the same default the prompt bar shows, whoever asked (Create, chat, Read aloud).
+    let v = isMain(f) ? req.prompt.trim() : (req.input[f.name] ?? (f.media ? undefined : current(f, undefined)))
+    if (v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length)) {
+      if (f.required) throw new Error(isMain(f) ? 'Write a prompt first.' : `${model.label} needs ${f.name.replace(/_/g, ' ')}.`)
+      continue
+    }
+    if (f.media) {
+      const refs = (Array.isArray(v) ? v : [v]) as Ref[]
+      const urls = await Promise.all(refs.slice(0, f.maxItems ?? 1).map(kieUrlFor))
+      v = f.type === 'array' ? urls : urls[0]
+    } else if (f.type === 'integer' || f.type === 'number') v = Number(v)
+    else if (f.type === 'boolean') v = v === true || v === 'true'
+    input[f.name] = v
+  }
+  // Tools also take ids that aren't in kie's field list (Suno's task_id), so pass those through.
+  if (req.variant === 'tool') for (const [k, v] of Object.entries(req.input)) if (!(k in input) && !spec.fields.some((f) => f.name === k)) input[k] = v
+  const count = Math.min(Math.max(Math.round(req.count) || 1, 1), 4)
+  const ids: string[] = []
+  for (let i = 0; i < count; i++) {
+    const id = await createTask(spec.slug, input)
+    ids.push(id)
+    // Saved the moment kie returns the ID: the job is already billed, so it must never be lost.
+    db.prepare(
+      "INSERT INTO tasks (id, model_id, variant, label, prompt, input, state, files, project_id, created_at) VALUES (?, ?, ?, ?, ?, ?, 'waiting', '[]', ?, ?)",
+    ).run(id, model.id, req.variant, model.label, req.prompt, JSON.stringify(req.input), req.projectId ?? null, Date.now())
+    notify()
+  }
+  return ids
+}
+
+export const starTask = (id: string, on: boolean) => (db.prepare('UPDATE tasks SET starred = ? WHERE id = ?').run(on ? 1 : 0, id), notify())
+
+export async function removeTask(id: string) {
+  const row = db.prepare('SELECT files FROM tasks WHERE id = ?').get(id) as { files: string } | undefined
+  for (const file of JSON.parse(row?.files || '[]')) await shell.trashItem(pathOf({ kind: 'media', file })).catch(() => {})
+  db.prepare('DELETE FROM tasks WHERE id = ?').run(id)
+  notify()
+}
+
+// Checks unfinished jobs every 4 s and saves results to disk. Runs from launch, so jobs survive a restart.
+let sweeping = false
+async function sweep() {
+  if (sweeping) return
+  sweeping = true
+  let changed = false
+  try {
+    const pending = db.prepare("SELECT id, state, created_at FROM tasks WHERE state NOT IN ('success', 'fail')").all() as any[]
+    for (const t of pending) {
+      try {
+        const info = await taskInfo(t.id)
+        if (info.state === 'success') {
+          const result = JSON.parse(info.resultJson || '{}')
+          const files: string[] = []
+          const meta: NonNullable<Task['meta']> = {}
+          if (Array.isArray(result.data)) {
+            // Suno: tracks with their own ids (needed to extend or split them) and cover art.
+            meta.tracks = []
+            for (const [i, tr] of result.data.entries()) {
+              const file = await download(tr.audio_url, `${t.id}-${i}`)
+              const cover = tr.image_url ? await download(tr.image_url, `${t.id}-${i}-cover`).catch(() => undefined) : undefined
+              files.push(file)
+              meta.tracks.push({ file, id: tr.id, title: tr.title, cover })
+            }
+          } else {
+            // Veo at 1080p/4K puts its video under data.result_urls instead of resultUrls.
+            const urls: string[] = result.resultUrls ?? result.data?.result_urls ?? result.data?.resultUrls ?? []
+            for (const [i, url] of urls.entries()) files.push(await download(url, `${t.id}-${i}`))
+          }
+          if (result.resultObject?.text) meta.text = result.resultObject.text
+          db.prepare("UPDATE tasks SET state = 'success', files = ?, meta = ?, credits = ?, completed_at = ? WHERE id = ?").run(
+            JSON.stringify(files), JSON.stringify(meta), info.creditsConsumed ?? null, Date.now(), t.id)
+        } else if (info.state === 'fail') {
+          db.prepare("UPDATE tasks SET state = 'fail', error = ?, credits = ?, completed_at = ? WHERE id = ?").run(
+            info.failMsg || `Generation failed (code ${info.failCode ?? '?'})`, info.creditsConsumed ?? 0, Date.now(), t.id)
+        } else if (info.state !== t.state) {
+          db.prepare('UPDATE tasks SET state = ? WHERE id = ?').run(info.state, t.id)
+        } else continue
+        changed = true
+      } catch (e) {
+        // Network blips retry on the next sweep. A job kie still hasn't answered after 2 hours is given up.
+        if (Date.now() - t.created_at > 2 * 3600_000) {
+          db.prepare("UPDATE tasks SET state = 'fail', error = ? WHERE id = ?").run(`Gave up: ${(e as Error).message}`, t.id)
+          changed = true
+        }
+      }
+    }
+  } finally {
+    sweeping = false
+  }
+  if (changed) notify()
+}
+
+// Dictation: transcribe a recording and wait for the text (usually 2–5 s).
+export async function transcribe(recording: Ref): Promise<string> {
+  const [id] = await generate({ modelId: 'transcribe', variant: 'tool', prompt: '', input: { audio_url: recording }, count: 1 })
+  for (let i = 0; i < 80; i++) {
+    await new Promise((r) => setTimeout(r, 1500))
+    const info = await taskInfo(id)
+    if (info.state === 'success') return String(JSON.parse(info.resultJson || '{}').resultObject?.text ?? '').trim()
+    if (info.state === 'fail') throw new Error(info.failMsg || 'Transcription failed.')
+  }
+  throw new Error('Transcription took too long.')
+}
+
+export function startPoller(onChange: () => void) {
+  notify = onChange
+  setInterval(sweep, 4000)
+  void sweep()
+}
