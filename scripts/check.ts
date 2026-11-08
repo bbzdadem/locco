@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { buildInput, fill, resolveMentions, slotsOf } from '../src/shared/inputs'
 import { generators, isEleven, MEDIA_MODELS } from '../src/shared/models'
 import { estimate, priceLabel } from '../src/shared/prices'
+import { clipFor, timing } from '../src/shared/timing'
 import type { Attachment, MediaKind } from '../src/shared/types'
 
 const img = (file: string): Attachment => ({ kind: 'uploads', file, name: file, mime: 'image/png' })
@@ -41,6 +42,15 @@ for (const m of MEDIA_MODELS) for (const sp of [m.text, m.image]) {
   assert.ok(!count || count.default === undefined || Number(count.default) === 1, `${m.id} would make ${count?.default} results per request`)
   assert.ok(!count || count.default !== undefined || sp.fixed?.[count.name] !== undefined || /default: ?1\b/.test(count.description), `${m.id}: ${count?.name} has no default; pin it in fixed`)
 }
+
+// Series: a scene runs as long as its dialogue (plus short pauses), and the clip asked for is the shortest that covers it.
+assert.deepEqual(timing({ lines: [] }), { voices: [], seconds: 3 })
+const two = timing({ lines: [{ speaker: 'A', text: '', seconds: 2 }, { speaker: 'B', text: '', seconds: 1.5 }] })
+assert.deepEqual(two.voices.map((v) => +v.toFixed(2)), [0.3, 2.65])
+assert.equal(+two.seconds.toFixed(2), 4.8)
+assert.equal(clipFor([5, 10, 15], 4.8), 5)
+assert.equal(clipFor([6, 10, 15], 11), 15)
+assert.equal(clipFor([5, 10], 20), 10)
 
 // @ mentions
 const a = img('a.png'), b = img('b.png')

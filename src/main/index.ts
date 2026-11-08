@@ -4,16 +4,19 @@ import { copyFile, stat, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { Readable } from 'node:stream'
 import { chatModel, ELEVEN_VOICES, setElevenVoices } from '../shared/models'
-import type { ChatEvent, CutRequest, GenerateRequest, MediaKind, Project, Ref, SendRequest, Series, Settings } from '../shared/types'
+import type { Character, ChatEvent, CutRequest, GenerateRequest, MediaKind, Project, Ref, Scene, SendRequest, Series, Settings } from '../shared/types'
 import {
   cancelCall, deleteChat, deleteProject, enhancePrompt, exportMarkdown, getMessages, listChats, listProjects, moveChat, pinChat, regenerate,
   renameChat, runCall, saveProject, searchChats, send, stopChat,
 } from './chat'
 import { dirs, getSetting, openDb, setSetting, usage } from './db'
-import { hasElevenKey, setElevenKey, voices } from './eleven'
+import { addVoice, allVoices, hasElevenKey, setElevenKey } from './eleven'
 import { credits, setKey } from './kie'
 import { mimeOf, pathOf, saveUpload } from './media'
-import { cut, deletedSeries, deleteSeries, listSeries, restoreSeries, reviewFrames, saveSeries, writeEpisode, writeSeries } from './series'
+import {
+  cut, deleteCharacter, deletedSeries, deleteSeries, listCharacters, listSeries, mediaSeconds, restoreSeries, reviseScript, saveCharacter, saveSeries,
+  writeRecap, writeScript, writeSeries,
+} from './series'
 import { generate, listTasks, removeTask, starTask, startPoller, transcribe } from './tasks'
 
 let win: BrowserWindow | null = null
@@ -31,7 +34,7 @@ async function loadElevenKey() {
   if (!saved) return
   try {
     setElevenKey(await decrypt(saved))
-    void voices().then(setElevenVoices, () => {})
+    void allVoices().then(setElevenVoices, () => {})
   } catch {} // Keychain refused: paste the key again in Settings.
 }
 
@@ -125,7 +128,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('settings:set', async (_e, s: { apiKey?: string; elevenKey?: string; about?: string; model?: string; agentBudget?: number }) => {
     if (s.elevenKey?.trim()) {
       const k = s.elevenKey.trim()
-      const list = await voices(k) // throws a readable error if ElevenLabs refuses the key, before anything is saved
+      const list = await allVoices(k) // throws a readable error if ElevenLabs refuses the key, before anything is saved
       setElevenKey(k)
       setElevenVoices(list)
       setSetting('elevenKey', await encrypt(k))
@@ -144,6 +147,12 @@ app.whenReady().then(async () => {
   })
   ipcMain.handle('credits', () => credits())
   ipcMain.handle('eleven:voices', () => ELEVEN_VOICES)
+  ipcMain.handle('eleven:refresh', async () => (setElevenVoices(await allVoices()), ELEVEN_VOICES))
+  ipcMain.handle('eleven:add', async (_e, text: string) => {
+    const voice = await addVoice(text)
+    setElevenVoices(await allVoices())
+    return { voice, list: ELEVEN_VOICES }
+  })
   ipcMain.handle('usage', () => usage())
 
   ipcMain.handle('chats:list', listChats)
@@ -168,11 +177,15 @@ app.whenReady().then(async () => {
   ipcMain.handle('series:delete', (_e, id: string) => deleteSeries(id))
   ipcMain.handle('series:deleted', deletedSeries)
   ipcMain.handle('series:restore', (_e, id: string) => restoreSeries(id))
-  ipcMain.handle('series:write', (_e, idea: string, episodes: number, seconds: number) => writeSeries(idea, episodes, seconds))
-  ipcMain.handle('series:episode', (_e, s: Series, index: number, shotSeconds: number) => writeEpisode(s, index, shotSeconds))
-  ipcMain.handle('series:review', (_e, portraits: { name: string; file: string }[], frames: { n: number; description: string; file: string }[]) =>
-    reviewFrames(portraits, frames))
+  ipcMain.handle('series:write', (_e, idea: string, episodes: number, seconds: number, cast: string[]) => writeSeries(idea, episodes, seconds, cast))
+  ipcMain.handle('series:script', (_e, s: Series, index: number) => writeScript(s, index))
+  ipcMain.handle('series:revise', (_e, s: Series, index: number, scenes: Scene[], change: string) => reviseScript(s, index, scenes, change))
+  ipcMain.handle('series:recap', (_e, s: Series, index: number) => writeRecap(s, index))
   ipcMain.handle('series:cut', (_e, req: CutRequest) => cut(req))
+  ipcMain.handle('characters:list', listCharacters)
+  ipcMain.handle('characters:save', (_e, c: Character) => saveCharacter(c))
+  ipcMain.handle('characters:delete', (_e, id: string) => deleteCharacter(id))
+  ipcMain.handle('media:seconds', (_e, file: string) => mediaSeconds(file))
   ipcMain.handle('chat:send', (_e, req: SendRequest) => send(req, emit))
   ipcMain.handle('chat:regenerate', (_e, id: string, model: string, thinking: boolean, agent: boolean) => regenerate(id, model, thinking, agent, emit))
   ipcMain.handle('chat:stop', (_e, id: string) => void stopChat(id))

@@ -103,20 +103,38 @@ export type Settings = { hasKey: boolean; keySource: 'saved' | 'env' | null; abo
 // Credits spent per day and model. extra = prompt improvements and chat summaries.
 export type UsageRow = { day: string; source: 'chat' | 'media' | 'extra'; model: string; credits: number }
 
-// A short series: a bible (characters, style) and episodes made of shots. Generations are referenced by task id.
-export type Character = { id: string; name: string; look: string; personality: string; voice?: string; portraitTask?: string }
-export type Shot = {
+// --- Series ---
+// A saved character, castable in any series. The portrait is picked from a few options; the reference sheet is made from it.
+export type Character = {
   id: string
-  description: string
-  camera: string
-  speaker: string
-  line: string
-  frameTask?: string
-  videoTask?: string
-  voiceTask?: string
-  reviewed?: boolean
+  name: string
+  look: string
+  personality: string
+  voice?: string
+  photo?: Attachment
+  options?: string[]
+  portraitTask?: string
+  sheetTask?: string
+  createdAt: number
 }
-export type Episode = { id: string; title: string; summary: string; shots: Shot[]; musicTask?: string; cut?: string }
+// A spoken line. seconds is measured once the voice is made; it decides how long the scene runs.
+export type Line = { speaker: string; text: string; voiceTask?: string; seconds?: number }
+export type Scene = {
+  id: string
+  place: string
+  action: string
+  camera: string
+  cast: string[]
+  lines: Line[]
+  frameTask?: string
+  versions?: string[]
+  approved?: boolean
+  videoTask?: string
+}
+// Episodes move through the steps in order; script and scenes wait for your approval.
+export type Step = 'script' | 'scenes' | 'voices' | 'video' | 'cut'
+export type Episode = { id: string; title: string; summary: string; step: Step; scenes: Scene[]; recap?: string; music?: boolean; musicTask?: string; cut?: string }
+// continuity: running notes on what has happened, kept up to date after every finished episode.
 export type Series = {
   id: string
   title: string
@@ -126,9 +144,11 @@ export type Series = {
   seconds: number
   imageModel: string
   videoModel: string
-  characters: Character[]
+  videoSound?: boolean
+  cast: string[]
+  continuity: string
   episodes: Episode[]
   createdAt: number
 }
-// One cut: shot videos in order, an optional voice line per shot, and a music bed.
-export type CutRequest = { name: string; shots: { video: string; voice?: string }[]; music?: string }
+// One cut: scene videos trimmed to `seconds`, voices placed `at` seconds into their scene, music underneath.
+export type CutRequest = { name: string; scenes: { video: string; seconds: number; voices: { file: string; at: number }[] }[]; music?: string; videoSound?: boolean }

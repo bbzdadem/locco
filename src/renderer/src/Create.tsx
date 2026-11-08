@@ -1,11 +1,12 @@
 import { AudioLines, AudioWaveform, Clapperboard, Download, Image, ImagePlus, LoaderCircle, Maximize2, MessageSquare, Music, Play, Plus, RotateCcw, Scissors, SlidersHorizontal, Sparkles, Star, Trash2, TriangleAlert, WandSparkles, X } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
-import { bestFor, generators, isEleven, kindOf, MEDIA_MODELS, withBest } from '../../shared/models'
+import { generators, isEleven, kindOf, MEDIA_MODELS, withBest } from '../../shared/models'
 import { buildInput, capOf, fill, isMain, refList, resolveMentions, slotLabel, slotsOf, valid, current, type Refs } from '../../shared/inputs'
 import { estimate, priceLabel } from '../../shared/prices'
 import type { Attachment, Field, MediaKind, Task } from '../../shared/types'
 import { ACCEPT_IMAGES, api, errMsg, fmtCredits, load, mediaUrl, pretty, save, toAttachments } from './lib'
 import { Header, IconButton, SelectChip } from './ui'
+import { VoiceTools } from './Voices'
 
 type Item = { task: Task; file?: string }
 type HeaderProps = { collapsed: boolean; onExpand: () => void }
@@ -101,6 +102,7 @@ export function Create({ header, onChanged, onSendToChat }: { header: HeaderProp
   const [dragging, setDragging] = useState(false)
   const [mention, setMention] = useState<{ query: string; start: number; index: number } | null>(null)
   const [favorites, setFavorites] = useState(false)
+  const [, redraw] = useState(0)
   const [enhancing, setEnhancing] = useState(false)
   const [before, setBefore] = useState<string | null>(null) // the prompt before ✨, for Undo
   const grid = useRef<HTMLDivElement>(null)
@@ -445,7 +447,6 @@ export function Create({ header, onChanged, onSendToChat }: { header: HeaderProp
               onChange={(id) => pickModel(tab, id)}
               options={list.map((m) => ({ value: m.id, label: withBest(m.label, m.id) }))}
             />
-            {bestFor(model.id) && <span className="hidden h-8 max-w-60 items-center truncate text-xs text-faint lg:inline-flex" title={bestFor(model.id)}>{bestFor(model.id)}</span>}
             {chips.map((f) => {
               const cur = current(f, v[f.name])
               if (f.type === 'boolean')
@@ -476,6 +477,7 @@ export function Create({ header, onChanged, onSendToChat }: { header: HeaderProp
                 />
               )
             })}
+            {model.id === 'el-tts' && <VoiceTools onChange={(id) => (id ? setValue('voice', id) : redraw((n) => n + 1))} />}
             <SelectChip
               title={`How many ${{ image: 'images', video: 'videos', audio: 'generations' }[tab]}`}
               label={`×${count}`}

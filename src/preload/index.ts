@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { Attachment, Chat, ChatEvent, ChatHit, CutRequest, GenerateRequest, MediaKind, Message, Project, Ref, SendRequest, Series, Settings, Shot, Task, UsageRow } from '../shared/types'
+import type { Attachment, Character, Chat, ChatEvent, ChatHit, CutRequest, GenerateRequest, MediaKind, Message, Project, Ref, Scene, SendRequest, Series, Settings, Task, UsageRow } from '../shared/types'
+
+type Voice = { id: string; name: string; about: string; premade?: boolean }
 
 const on = <T>(channel: string) => (cb: (v: T) => void) => {
   const handler = (_e: unknown, v: T) => cb(v)
@@ -10,7 +12,9 @@ const on = <T>(channel: string) => (cb: (v: T) => void) => {
 const api = {
   settings: (): Promise<Settings> => ipcRenderer.invoke('settings:get'),
   saveSettings: (s: { apiKey?: string; elevenKey?: string; about?: string; model?: string; agentBudget?: number }): Promise<Settings> => ipcRenderer.invoke('settings:set', s),
-  elevenVoices: (): Promise<{ id: string; name: string; about: string; premade: boolean }[]> => ipcRenderer.invoke('eleven:voices'),
+  elevenVoices: (): Promise<Voice[]> => ipcRenderer.invoke('eleven:voices'),
+  refreshVoices: (): Promise<Voice[]> => ipcRenderer.invoke('eleven:refresh'),
+  addVoice: (text: string): Promise<{ voice: Voice; list: Voice[] }> => ipcRenderer.invoke('eleven:add', text),
   credits: (): Promise<number> => ipcRenderer.invoke('credits'),
   usage: (): Promise<UsageRow[]> => ipcRenderer.invoke('usage'),
 
@@ -30,11 +34,16 @@ const api = {
   deleteSeries: (id: string): Promise<void> => ipcRenderer.invoke('series:delete', id),
   deletedSeries: (): Promise<{ series: Series; deletedAt: number }[]> => ipcRenderer.invoke('series:deleted'),
   restoreSeries: (id: string): Promise<void> => ipcRenderer.invoke('series:restore', id),
-  writeSeries: (idea: string, episodes: number, seconds: number): Promise<Series> => ipcRenderer.invoke('series:write', idea, episodes, seconds),
-  writeEpisode: (s: Series, index: number, shotSeconds: number): Promise<Shot[]> => ipcRenderer.invoke('series:episode', s, index, shotSeconds),
-  reviewFrames: (portraits: { name: string; file: string }[], frames: { n: number; description: string; file: string }[]): Promise<{ shot: number; fix: string }[]> =>
-    ipcRenderer.invoke('series:review', portraits, frames),
+  writeSeries: (idea: string, episodes: number, seconds: number, cast: string[]): Promise<{ series: Series; created: Character[] }> =>
+    ipcRenderer.invoke('series:write', idea, episodes, seconds, cast),
+  writeScript: (s: Series, index: number): Promise<Scene[]> => ipcRenderer.invoke('series:script', s, index),
+  reviseScript: (s: Series, index: number, scenes: Scene[], change: string): Promise<Scene[]> => ipcRenderer.invoke('series:revise', s, index, scenes, change),
+  writeRecap: (s: Series, index: number): Promise<{ recap: string; continuity: string }> => ipcRenderer.invoke('series:recap', s, index),
   cut: (req: CutRequest): Promise<string> => ipcRenderer.invoke('series:cut', req),
+  characters: (): Promise<Character[]> => ipcRenderer.invoke('characters:list'),
+  saveCharacter: (c: Character): Promise<void> => ipcRenderer.invoke('characters:save', c),
+  deleteCharacter: (id: string): Promise<void> => ipcRenderer.invoke('characters:delete', id),
+  mediaSeconds: (file: string): Promise<number> => ipcRenderer.invoke('media:seconds', file),
   send: (req: SendRequest): Promise<void> => ipcRenderer.invoke('chat:send', req),
   regenerate: (chatId: string, model: string, thinking: boolean, agent: boolean): Promise<void> =>
     ipcRenderer.invoke('chat:regenerate', chatId, model, thinking, agent),

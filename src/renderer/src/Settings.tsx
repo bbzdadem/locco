@@ -4,6 +4,7 @@ import { CHAT_MODELS, chatModel, withBest } from '../../shared/models'
 import { USD_PER_CREDIT } from '../../shared/prices'
 import type { Settings, UsageRow } from '../../shared/types'
 import { api, errMsg, fmtCredits } from './lib'
+import { VoiceTools } from './Voices'
 
 export function SettingsDialog({ settings, onClose, onSaved }: { settings: Settings; onClose: () => void; onSaved: (s: Settings) => void }) {
   const welcome = !settings.hasKey
@@ -86,13 +87,19 @@ export function SettingsDialog({ settings, onClose, onSaved }: { settings: Setti
             className="h-10 rounded-xl border border-line bg-bg px-3 font-mono text-[13px] focus:border-fg"
           />
           <span className="text-xs text-muted">
-            {settings.hasEleven ? `Saved, encrypted on this Mac. ${settings.elevenVoices} voices available.` : 'Used for voices, sound effects, music and voice isolation, billed to your ElevenLabs plan.'}{' '}
+            {settings.hasEleven ? 'Saved, encrypted on this Mac.' : 'Used for voices, sound effects, music and voice isolation, billed to your ElevenLabs plan.'}{' '}
             Make one at{' '}
             <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" rel="noreferrer" className="underline underline-offset-2">
               elevenlabs.io › API keys
             </a>
             .
           </span>
+          {settings.hasEleven && (
+            <span className="flex items-center gap-2 text-xs text-muted">
+              {settings.elevenVoices} voices loaded. Added one on elevenlabs.io? Refresh, or use any voice by its ID:
+              <VoiceTools onChange={() => {}} />
+            </span>
+          )}
         </label>
 
         <label className="flex flex-col gap-2">
