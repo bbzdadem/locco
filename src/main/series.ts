@@ -6,11 +6,13 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { ELEVEN_VOICES } from '../shared/models'
-import type { Character, CutRequest, Episode, Scene, Series } from '../shared/types'
+import { clipLength } from '../shared/timing'
+import type { Character, Episode, Ref, RenderRequest, Scene, Series } from '../shared/types'
 import { complete } from './chat'
 import { db, dirs } from './db'
+import { pathOf } from './media'
 
-const run = promisify(execFile)
+export const run = promisify(execFile)
 const WRITER = 'gpt-6-sol'
 const DAY = 86_400_000
 
@@ -174,55 +176,66 @@ export async function writeRecap(s: Series, index: number): Promise<{ recap: str
 
 // --- The cut ---
 
-const ffmpeg = () => (app.isPackaged ? join(process.resourcesPath, 'ffmpeg') : join(app.getAppPath(), 'node_modules/ffmpeg-static/ffmpeg'))
+export const ffmpeg = () => (app.isPackaged ? join(process.resourcesPath, 'ffmpeg') : join(app.getAppPath(), 'node_modules/ffmpeg-static/ffmpeg'))
 
 // ffmpeg prints a file's details to stderr (and exits with an error when given no output); read length and audio from that.
-async function probe(path: string) {
+export async function probe(path: string) {
   const err: string = await run(ffmpeg(), ['-hide_banner', '-i', path]).then(() => '', (e) => String(e.stderr ?? ''))
   const d = /Duration: (\d+):(\d+):([\d.]+)/.exec(err)
   return { seconds: d ? Number(d[1]) * 3600 + Number(d[2]) * 60 + Number(d[3]) : 0, audio: /Stream #\S+.*Audio:/.test(err) }
 }
-export const mediaSeconds = async (file: string) => (await probe(join(dirs.media, file))).seconds
+// Length of a file in locco's media folder (a name) or of any stored file (a Ref: your uploads included).
+export const mediaSeconds = async (file: string | Ref) => (await probe(typeof file === 'string' ? join(dirs.media, file) : pathOf(file))).seconds
 
-// Each scene runs exactly as long as its dialogue needs: the clip is trimmed (or its last frame held) to `seconds`.
-// The clip's own sound is muted unless videoSound is on; voices land at their times; music sits underneath.
-export async function cut(req: CutRequest): Promise<string> {
-  if (!req.scenes.length) throw new Error('There are no scene videos to cut.')
+// Renders an edit: each clip trimmed (in/out), sped up or down, reframed (pan/zoom inside the 9:16 crop) and held on its
+// last frame for `hold` seconds; its own sound kept only if `sound`; voices placed from the clip's start; music underneath.
+// A preview renders fast to one reused file per episode; a final render gets its own file.
+export async function render(req: RenderRequest): Promise<string> {
+  if (!req.clips.length) throw new Error('There are no clips to render.')
   const media = (f: string) => join(dirs.media, f)
-  const info = await Promise.all(req.scenes.map((s) => probe(media(s.video))))
+  const info = await Promise.all(req.clips.map((c) => probe(media(c.video))))
+  const even = (n: number) => Math.round(n / 2) * 2
   const args = ['-y', '-hide_banner', '-loglevel', 'error']
   const filters: string[] = []
-  req.scenes.forEach((s) => args.push('-i', media(s.video)))
-  let input = req.scenes.length
+  req.clips.forEach((c) => args.push('-i', media(c.video)))
+  let input = req.clips.length
   let start = 0
   const mix: string[] = []
-  req.scenes.forEach((s, i) => {
-    const d = s.seconds.toFixed(3)
-    filters.push(`[${i}:v]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,fps=30,setsar=1,format=yuv420p,tpad=stop_mode=clone:stop_duration=20,trim=duration=${d},setpts=PTS-STARTPTS[v${i}]`)
-    filters.push(req.videoSound && info[i].audio
-      ? `[${i}:a]aformat=sample_rates=48000:channel_layouts=stereo,volume=${s.voices.length ? 0.35 : 1},apad,atrim=0:${d},asetpts=PTS-STARTPTS[a${i}]`
-      : `anullsrc=r=48000:cl=stereo:d=${d}[a${i}]`)
-    s.voices.forEach((v, j) => {
+  req.clips.forEach((c, i) => {
+    const len = clipLength(c).toFixed(3)
+    const [w, h] = [even(720 * c.zoom), even(1280 * c.zoom)]
+    const x = ((c.pan + 1) / 2).toFixed(3)
+    filters.push(
+      `[${i}:v]trim=start=${c.in}:end=${c.out},setpts=(PTS-STARTPTS)/${c.speed},scale=${w}:${h}:force_original_aspect_ratio=increase,` +
+        `crop=720:1280:(iw-720)*${x}:(ih-1280)/2,fps=30,setsar=1,format=yuv420p,tpad=stop_mode=clone:stop_duration=${(c.hold + 30).toFixed(2)},` +
+        `trim=duration=${len},setpts=PTS-STARTPTS[v${i}]`,
+    )
+    filters.push(c.sound && info[i].audio
+      ? `[${i}:a]atrim=start=${c.in}:end=${c.out},asetpts=PTS-STARTPTS,atempo=${c.speed},aformat=sample_rates=48000:channel_layouts=stereo,` +
+        `volume=${c.voices.length ? 0.35 : 1},apad,atrim=0:${len},asetpts=PTS-STARTPTS[a${i}]`
+      : `anullsrc=r=48000:cl=stereo:d=${len}[a${i}]`)
+    c.voices.forEach((v, j) => {
       args.push('-i', media(v.file))
-      const ms = Math.round((start + v.at) * 1000)
+      const ms = Math.max(0, Math.round((start + v.at) * 1000))
       filters.push(`[${input}:a]aformat=sample_rates=48000:channel_layouts=stereo,adelay=${ms}|${ms}[vo${i}_${j}]`)
       mix.push(`[vo${i}_${j}]`)
       input++
     })
-    start += s.seconds
+    start += clipLength(c)
   })
-  filters.push(`${req.scenes.map((_, i) => `[v${i}][a${i}]`).join('')}concat=n=${req.scenes.length}:v=1:a=1[v][base]`)
+  filters.push(`${req.clips.map((_, i) => `[v${i}][a${i}]`).join('')}concat=n=${req.clips.length}:v=1:a=1[v][base]`)
   if (req.music) {
-    args.push('-i', media(req.music))
-    filters.push(`[${input}:a]aformat=sample_rates=48000:channel_layouts=stereo,volume=0.16,afade=t=out:st=${Math.max(0, start - 1.5).toFixed(2)}:d=1.5[music]`)
+    args.push('-i', media(req.music.file))
+    filters.push(`[${input}:a]aformat=sample_rates=48000:channel_layouts=stereo,volume=${req.music.volume.toFixed(2)},afade=t=out:st=${Math.max(0, start - 1.5).toFixed(2)}:d=1.5[music]`)
     mix.push('[music]')
   }
   filters.push(mix.length ? `[base]${mix.join('')}amix=inputs=${mix.length + 1}:duration=first:normalize=0[aout]` : '[base]anull[aout]')
-  const file = `${req.name.replace(/[^a-z0-9-]+/gi, '-').slice(0, 60)}-${Date.now()}.mp4`
-  args.push('-filter_complex', filters.join(';'), '-map', '[v]', '-map', '[aout]', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20',
-    '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', media(file))
+  const safe = req.name.replace(/[^a-z0-9-]+/gi, '-').slice(0, 60)
+  const file = req.preview ? `preview-${safe}.mp4` : `${safe}-${Date.now()}.mp4`
+  args.push('-filter_complex', filters.join(';'), '-map', '[v]', '-map', '[aout]', '-c:v', 'libx264', '-preset', req.preview ? 'ultrafast' : 'veryfast',
+    '-crf', req.preview ? '28' : '20', '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', media(file))
   await run(ffmpeg(), args, { maxBuffer: 16 * 1024 * 1024 }).catch((e) => {
-    throw new Error(`The cut failed: ${String(e.stderr || e.message).trim().split('\n').at(-1)}`)
+    throw new Error(`Rendering failed: ${String(e.stderr || e.message).trim().split('\n').at(-1)}`)
   })
   return file
 }

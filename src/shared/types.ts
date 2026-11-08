@@ -133,7 +133,17 @@ export type Scene = {
 }
 // Episodes move through the steps in order; script and scenes wait for your approval.
 export type Step = 'script' | 'scenes' | 'voices' | 'video' | 'cut'
-export type Episode = { id: string; title: string; summary: string; step: Step; scenes: Scene[]; recap?: string; music?: boolean; musicTask?: string; cut?: string }
+// cuts: earlier renders, oldest first (the Edit section's exports land here too).
+export type Episode = {
+  id: string; title: string; summary: string; step: Step; scenes: Scene[]; recap?: string; music?: boolean; musicTask?: string; cut?: string; cuts?: string[]
+}
+// A clip on the editor's timeline. in/out are seconds in the scene's video; hold freezes the last frame; pan -1…1 moves
+// the 9:16 crop left/right; voices are the scene's lines (by index) and when they start, in seconds from the clip's start.
+export type EditClip = {
+  id: string; sceneId: string; in: number; out: number; speed: number; pan: number; zoom: number; hold: number; sound: boolean
+  voices: { line: number; at: number }[]
+}
+export type Edit = { clips: EditClip[]; music: boolean; volume: number }
 // continuity: running notes on what has happened, kept up to date after every finished episode.
 export type Series = {
   id: string
@@ -150,5 +160,57 @@ export type Series = {
   episodes: Episode[]
   createdAt: number
 }
-// One cut: scene videos trimmed to `seconds`, voices placed `at` seconds into their scene, music underneath.
-export type CutRequest = { name: string; scenes: { video: string; seconds: number; voices: { file: string; at: number }[] }[]; music?: string; videoSound?: boolean }
+// What ffmpeg renders: clips in order (files resolved), voices placed from each clip's start, music underneath.
+export type RenderClip = Omit<EditClip, 'id' | 'sceneId' | 'voices'> & { video: string; voices: { file: string; at: number }[] }
+export type RenderRequest = { name: string; clips: RenderClip[]; music?: { file: string; volume: number }; preview?: boolean }
+
+// --- Video editor (the Edit section) ---
+// One main video track (clips back to back), text tracks and audio tracks (items placed freely in time).
+export type TrackKind = 'video' | 'text' | 'audio'
+export type Track = { id: string; kind: TrackKind; name: string; muted?: boolean }
+// A timeline item. Video/audio use in/out (seconds in the source) and speed; images and text use duration.
+// start is the time on the timeline (worked out for the main track, set freely on the others).
+export type Item = {
+  id: string
+  track: string
+  start: number
+  label: string
+  ref?: Ref
+  media?: 'video' | 'image' | 'audio'
+  source?: number
+  in?: number
+  out?: number
+  duration?: number
+  speed?: number
+  pan?: number
+  zoom?: number
+  hold?: number
+  sound?: boolean
+  volume?: number
+  fadeIn?: number
+  fadeOut?: number
+  text?: string
+  style?: 'caption' | 'title'
+  position?: 'top' | 'middle' | 'bottom'
+}
+export type Aspect = '9:16' | '16:9' | '1:1'
+export type EditProject = {
+  id: string
+  title: string
+  aspect: Aspect
+  tracks: Track[]
+  items: Item[]
+  imports: Attachment[]
+  exports: string[]
+  episode?: { series: string; episode: string }
+  createdAt: number
+}
+// What ffmpeg renders for a project: everything resolved to files and seconds. Text arrives as full-frame PNGs.
+export type ProjectRender = {
+  name: string
+  aspect: Aspect
+  preview?: boolean
+  main: { ref: Ref; media: 'video' | 'image'; in: number; out: number; length: number; speed: number; pan: number; zoom: number; sound: boolean; volume: number }[]
+  texts: { ref: Ref; start: number; length: number }[]
+  audio: { ref: Ref; start: number; in: number; out: number; volume: number; fadeIn: number; fadeOut: number }[]
+}

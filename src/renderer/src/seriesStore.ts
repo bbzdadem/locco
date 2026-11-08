@@ -1,9 +1,9 @@
 // Shared state for Series and Characters: one copy of every series and character, written only from here,
 // plus the helpers that make images, voices and videos. Runs keep going while you look at other screens.
 import { buildInput, fill, slotsOf } from '../../shared/inputs'
-import { clipFor as clipLength } from '../../shared/timing'
+import { clipFor as shortestClip, timing as sceneTiming } from '../../shared/timing'
 import { ELEVEN_VOICES, MEDIA_MODELS } from '../../shared/models'
-import type { Attachment, Character, MediaModel, Scene, Series, Task } from '../../shared/types'
+import type { Attachment, Character, Edit, Episode, MediaModel, RenderRequest, Scene, Series, Task } from '../../shared/types'
 import { elapsed } from './Create'
 import { api } from './lib'
 
@@ -64,7 +64,7 @@ const enumOf = (m: MediaModel, name: string) => spec(m).fields.find((f) => f.nam
 // The video lengths a model can make, shortest first.
 export const lengths = (m: MediaModel) => enumOf(m, 'duration').map(Number).filter((n) => n > 0).sort((a, b) => a - b)
 // Shortest clip that covers the scene (the cut trims it to the exact length, or holds the last frame if even the longest is short).
-export const clipFor = (m: MediaModel, seconds: number) => clipLength(lengths(m), seconds)
+export const clipFor = (m: MediaModel, seconds: number) => shortestClip(lengths(m), seconds)
 // Videos are silent unless the series turns video sound on: the voices come from the script.
 export function videoValues(m: MediaModel, seconds: number, sound: boolean) {
   const v: Record<string, unknown> = { aspect_ratio: '9:16', duration: String(clipFor(m, seconds)), resolution: enumOf(m, 'resolution')[0] }
@@ -164,6 +164,35 @@ export const motionPrompt = (s: Series, scene: Scene) =>
   `${scene.action}. Camera: ${scene.camera}.${scene.lines.length ? ` ${[...new Set(scene.lines.map((l) => l.speaker))].join(' and ')} talking, natural mouth movement.` : ''} ${s.style} No text, no subtitles.`
 
 export { timing } from '../../shared/timing'
+
+// The edit an episode starts with (the same as the plain cut): every scene once, as long as its dialogue,
+// holding the last frame when the clip is shorter than that.
+export async function defaultEdit(s: Series, ep: Episode, t: Tasks): Promise<Edit> {
+  const clips = await Promise.all(ep.scenes.map(async (sc) => {
+    const file = fileOf(t, sc.videoTask)
+    const tm = sceneTiming(sc)
+    const out = Math.min((file && (await api.mediaSeconds(file))) || tm.seconds, tm.seconds)
+    return {
+      id: crypto.randomUUID(), sceneId: sc.id, in: 0, out: +out.toFixed(2), speed: 1, pan: 0, zoom: 1,
+      hold: +Math.max(0, tm.seconds - out).toFixed(2), sound: !!s.videoSound,
+      voices: sc.lines.flatMap((l, i) => (fileOf(t, l.voiceTask) ? [{ line: i, at: +tm.voices[i].toFixed(2) }] : [])), // only lines that have audio
+    }
+  }))
+  return { clips, music: ep.music !== false, volume: 0.16 }
+}
+
+// An edit with its files filled in, ready for ffmpeg. Clips whose scene or video is gone are left out.
+export function toRender(ep: Episode, edit: Edit, t: Tasks, name: string, preview = false): RenderRequest {
+  const clips = edit.clips.flatMap((c) => {
+    const sc = ep.scenes.find((x) => x.id === c.sceneId)
+    const video = fileOf(t, sc?.videoTask)
+    if (!sc || !video) return []
+    const { id: _id, sceneId: _scene, voices, ...rest } = c
+    return [{ ...rest, video, voices: voices.flatMap((v) => (fileOf(t, sc.lines[v.line]?.voiceTask) ? [{ file: fileOf(t, sc.lines[v.line].voiceTask)!, at: v.at }] : [])) }]
+  })
+  const music = edit.music ? fileOf(t, ep.musicTask) : undefined
+  return { name, clips, preview, ...(music && { music: { file: music, volume: edit.volume } }) }
+}
 export const voiceFor = (cast: Character[], speaker: string) => {
   const v = cast.find((c) => c.name.trim().toLowerCase() === speaker.trim().toLowerCase())?.voice
   return ELEVEN_VOICES.some((x) => x.id === v) ? v : undefined // an old kie voice id falls back to the default voice

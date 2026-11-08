@@ -3,7 +3,8 @@ import assert from 'node:assert/strict'
 import { buildInput, fill, resolveMentions, slotsOf } from '../src/shared/inputs'
 import { generators, isEleven, MEDIA_MODELS } from '../src/shared/models'
 import { estimate, priceLabel } from '../src/shared/prices'
-import { clipFor, timing } from '../src/shared/timing'
+import { clipFor, clipLength, split, starts, timing } from '../src/shared/timing'
+import { duration, itemLength, layout, MAIN, snap, splitAt } from '../src/shared/timeline'
 import type { Attachment, MediaKind } from '../src/shared/types'
 
 const img = (file: string): Attachment => ({ kind: 'uploads', file, name: file, mime: 'image/png' })
@@ -51,6 +52,30 @@ assert.equal(+two.seconds.toFixed(2), 4.8)
 assert.equal(clipFor([5, 10, 15], 4.8), 5)
 assert.equal(clipFor([6, 10, 15], 11), 15)
 assert.equal(clipFor([5, 10], 20), 10)
+
+// Editor: clip length counts trim, speed and held frames; splitting moves later voices to the second part.
+const clip = { id: 'a', sceneId: 's', in: 1, out: 7, speed: 1.25, pan: 0, zoom: 1, hold: 0.5, sound: false, voices: [{ line: 0, at: 0.3 }, { line: 1, at: 3 }] }
+assert.equal(clipLength(clip), 5.3)
+assert.deepEqual(starts([clip, { ...clip, speed: 1, hold: 0 }]), { at: [0, 5.3], total: 11.3 })
+const parts = split(clip, 4, 'b')!
+assert.deepEqual([parts[0].out, parts[0].hold, parts[0].voices.length], [4, 0, 1])
+assert.deepEqual([parts[1].in, parts[1].hold, parts[1].voices], [4, 0.5, [{ line: 1, at: 0.6 }]])
+assert.equal(split(clip, 1.05, 'c'), null)
+
+// Video editor: lengths, back-to-back main track, splitting (inside the clip and inside a held frame), snapping.
+const vid = { id: 'v', track: MAIN, start: 0, label: '', media: 'video' as const, in: 1, out: 5, speed: 2, hold: 1 }
+assert.equal(itemLength(vid), 3)
+const proj = layout({ id: 'p', title: '', aspect: '9:16', imports: [], exports: [], createdAt: 0, tracks: [],
+  items: [vid, { id: 'i', track: MAIN, start: 99, label: '', media: 'image', duration: 2 }, { id: 'a', track: 'a1', start: 7, label: '', media: 'audio', in: 0, out: 1 }] })
+assert.deepEqual(proj.items.map((it) => it.start), [0, 3, 7])
+assert.equal(duration(proj), 8)
+const [p1, p2] = splitAt(vid, 1, 'w')!
+assert.deepEqual([p1.out, p2.in, p2.start, itemLength(p1) + itemLength(p2)], [3, 3, 1, 3])
+const [h1, h2] = splitAt(vid, 2.5, 'h')!
+assert.deepEqual([h1.hold, h2.in, h2.hold, itemLength(h2)], [0.5, 5, 0.5, 0.5])
+assert.equal(splitAt(vid, 0.02, 'x'), null)
+assert.equal(snap(4.93, [0, 5, 9], 0.2), 5)
+assert.equal(snap(4.5, [0, 5, 9], 0.2), 4.5)
 
 // @ mentions
 const a = img('a.png'), b = img('b.png')

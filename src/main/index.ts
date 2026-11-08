@@ -4,17 +4,18 @@ import { copyFile, stat, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { Readable } from 'node:stream'
 import { chatModel, ELEVEN_VOICES, setElevenVoices } from '../shared/models'
-import type { Character, ChatEvent, CutRequest, GenerateRequest, MediaKind, Project, Ref, Scene, SendRequest, Series, Settings } from '../shared/types'
+import type { Character, ChatEvent, EditProject, GenerateRequest, MediaKind, Project, ProjectRender, Ref, RenderRequest, Scene, SendRequest, Series, Settings } from '../shared/types'
 import {
   cancelCall, deleteChat, deleteProject, enhancePrompt, exportMarkdown, getMessages, listChats, listProjects, moveChat, pinChat, regenerate,
   renameChat, runCall, saveProject, searchChats, send, stopChat,
 } from './chat'
 import { dirs, getSetting, openDb, setSetting, usage } from './db'
+import { deleteProject as deleteEdit, listProjects as listEdits, renderProject, saveProject as saveEdit, thumb } from './editor'
 import { addVoice, allVoices, hasElevenKey, setElevenKey } from './eleven'
 import { credits, setKey } from './kie'
 import { mimeOf, pathOf, saveUpload } from './media'
 import {
-  cut, deleteCharacter, deletedSeries, deleteSeries, listCharacters, listSeries, mediaSeconds, restoreSeries, reviseScript, saveCharacter, saveSeries,
+  deleteCharacter, deletedSeries, deleteSeries, listCharacters, listSeries, mediaSeconds, render, restoreSeries, reviseScript, saveCharacter, saveSeries,
   writeRecap, writeScript, writeSeries,
 } from './series'
 import { generate, listTasks, removeTask, starTask, startPoller, transcribe } from './tasks'
@@ -181,11 +182,16 @@ app.whenReady().then(async () => {
   ipcMain.handle('series:script', (_e, s: Series, index: number) => writeScript(s, index))
   ipcMain.handle('series:revise', (_e, s: Series, index: number, scenes: Scene[], change: string) => reviseScript(s, index, scenes, change))
   ipcMain.handle('series:recap', (_e, s: Series, index: number) => writeRecap(s, index))
-  ipcMain.handle('series:cut', (_e, req: CutRequest) => cut(req))
+  ipcMain.handle('series:render', (_e, req: RenderRequest) => render(req))
   ipcMain.handle('characters:list', listCharacters)
   ipcMain.handle('characters:save', (_e, c: Character) => saveCharacter(c))
   ipcMain.handle('characters:delete', (_e, id: string) => deleteCharacter(id))
-  ipcMain.handle('media:seconds', (_e, file: string) => mediaSeconds(file))
+  ipcMain.handle('media:seconds', (_e, file: string | Ref) => mediaSeconds(file))
+  ipcMain.handle('media:thumb', (_e, ref: Ref) => thumb(ref))
+  ipcMain.handle('edits:list', listEdits)
+  ipcMain.handle('edits:save', (_e, p: EditProject) => saveEdit(p))
+  ipcMain.handle('edits:delete', (_e, id: string) => deleteEdit(id))
+  ipcMain.handle('edits:render', (_e, req: ProjectRender) => renderProject(req))
   ipcMain.handle('chat:send', (_e, req: SendRequest) => send(req, emit))
   ipcMain.handle('chat:regenerate', (_e, id: string, model: string, thinking: boolean, agent: boolean) => regenerate(id, model, thinking, agent, emit))
   ipcMain.handle('chat:stop', (_e, id: string) => void stopChat(id))

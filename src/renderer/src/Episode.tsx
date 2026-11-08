@@ -1,4 +1,4 @@
-import { ArrowRight, Check, ChevronLeft, ChevronRight, Clapperboard, Download, FileText, ImagePlus, LoaderCircle, Plus, RotateCcw, Square, TriangleAlert, Wand2, X } from 'lucide-react'
+import { ArrowRight, Check, ChevronLeft, ChevronRight, Clapperboard, Download, FileText, Film, ImagePlus, LoaderCircle, Plus, RotateCcw, Square, TriangleAlert, Wand2, X } from 'lucide-react'
 import { useState } from 'react'
 import { buildInput } from '../../shared/inputs'
 import { ELEVEN_VOICES, withBest } from '../../shared/models'
@@ -6,10 +6,11 @@ import { estimate, priceLabel } from '../../shared/prices'
 import type { Character, Episode, Scene, Series, Step } from '../../shared/types'
 import { Avatar } from './Characters'
 import { Media } from './Create'
+import { episodeProject } from './Studio'
 import { api, mediaUrl } from './lib'
 import {
-  castOf, clipFor, editPrompt, fileOf, getSeries, img, IMAGE_MODELS, makeAll, makeOne, model, motionPrompt, needs, ready, refsOf, type Run, scenePrompt,
-  setRun, stateOf, step, type Tasks, timing, updateSeries, VIDEO_MODELS, videoValues, voiceFor, voiceName,
+  castOf, clipFor, defaultEdit, editPrompt, fileOf, getSeries, img, IMAGE_MODELS, makeAll, makeOne, model, motionPrompt, needs, ready, refsOf, type Run, scenePrompt,
+  setRun, stateOf, step, type Tasks, timing, toRender, updateSeries, VIDEO_MODELS, videoValues, voiceFor, voiceName,
 } from './seriesStore'
 import { IconButton, SelectChip } from './ui'
 
@@ -25,7 +26,7 @@ const sum = (n: number[]) => n.reduce((a, b) => a + b, 0)
 const fmt = (n: number) => `${n.toFixed(1)} s`
 const priceOf = (credits: number) => (credits ? priceLabel({ lo: credits, hi: credits, perSecond: false }) : '')
 
-type Props = { s: Series; ep: Episode; index: number; tasks: Tasks; cast: Character[]; run?: Run; onCharacter: (id: string) => void }
+type Props = { s: Series; ep: Episode; index: number; tasks: Tasks; cast: Character[]; run?: Run; onCharacter: (id: string) => void; onOpenEdit: (id: string) => void }
 
 export function EpisodeView(props: Props) {
   const { s, ep, index, run } = props
@@ -36,7 +37,7 @@ export function EpisodeView(props: Props) {
   const shown = STEPS.findIndex(([k]) => k === view) > reached ? ep.step : view
   const go = (next: Step) => (setView(next), void setEp((e) => void (STEPS.findIndex(([k]) => k === e.step) < STEPS.findIndex(([k]) => k === next) && (e.step = next))))
   const setEp = (fn: (e: Episode) => void) => updateSeries(s.id, (x) => fn(x.episodes.find((e) => e.id === ep.id)!))
-  const p = { ...props, rk: key, setEp, go, selected, setSelected }
+  const p = { ...props, rk: key, setEp, go, selected, setSelected, onEdit: () => void episodeProject(s, ep, props.tasks).then(props.onOpenEdit) }
 
   return (
     <div className="flex min-w-0 flex-1 flex-col">
@@ -80,7 +81,7 @@ export function EpisodeView(props: Props) {
   )
 }
 
-type StepProps = Props & { rk: string; setEp: (fn: (e: Episode) => void) => Promise<void>; go: (s: Step) => void; selected?: string; setSelected: (id: string) => void }
+type StepProps = Props & { onEdit: () => void; rk: string; setEp: (fn: (e: Episode) => void) => Promise<void>; go: (s: Step) => void; selected?: string; setSelected: (id: string) => void }
 const busy = (run?: Run) => !!run?.step
 
 // --- 1. Script: written from the story bible and earlier episodes; edit it or ask for changes, then approve ---
@@ -439,7 +440,7 @@ function VideoStep({ s, ep, tasks, run, rk: k, setEp, go }: StepProps) {
 
 // --- 5. Cut: clips trimmed to their dialogue, voices in place, music underneath; then the story bible is updated ---
 
-function CutStep({ s, ep, index, tasks, run, rk: k, setEp }: StepProps) {
+function CutStep({ s, ep, index, tasks, run, rk: k, setEp, onEdit }: StepProps) {
   const music = ep.music !== false
   const total = sum(ep.scenes.map((sc) => timing(sc).seconds))
   const make = () => step(k, 'Making the cut…', async () => {
@@ -452,16 +453,13 @@ function CutStep({ s, ep, index, tasks, run, rk: k, setEp }: StepProps) {
     t = Object.fromEntries((await api.tasks()).map((x) => [x.id, x]))
     const latest = getSeries(s.id).episodes.find((e) => e.id === ep.id)!
     setRun(k, { step: 'Cutting…' })
-    const file = await api.cut({
-      name: `${s.title} ${latest.title}`,
-      videoSound: !!s.videoSound,
-      music: music ? fileOf(t, latest.musicTask) : undefined,
-      scenes: latest.scenes.map((sc) => {
-        const tm = timing(sc)
-        return { video: fileOf(t, sc.videoTask)!, seconds: tm.seconds, voices: sc.lines.flatMap((l, i) => (fileOf(t, l.voiceTask) ? [{ file: fileOf(t, l.voiceTask)!, at: tm.voices[i] }] : [])) }
-      }),
+    // Every scene once, as long as its dialogue. (Fine-tuning happens in the Edit section; its export replaces this cut.)
+    const edit = { ...(await defaultEdit(getSeries(s.id), latest, t)), music }
+    const file = await api.render(toRender(latest, edit, t, `${s.title} ${latest.title}`))
+    await setEp((e) => {
+      if (e.cut) e.cuts = [...(e.cuts ?? []), e.cut]
+      e.cut = file
     })
-    await setEp((e) => void (e.cut = file))
     setRun(k, { step: 'Updating the story bible…' })
     const { recap, continuity } = await api.writeRecap(getSeries(s.id), index)
     await updateSeries(s.id, (x) => {
@@ -478,8 +476,15 @@ function CutStep({ s, ep, index, tasks, run, rk: k, setEp }: StepProps) {
           className={`h-8 rounded-full border px-3 text-[13px] ${music ? 'border-fg bg-raised' : 'border-line text-muted hover:bg-raised'}`}>
           Music: {music ? 'on' : 'off'}
         </button>
-        <span className="text-[13px] text-muted">{ep.scenes.length} scenes · {fmt(total)} · voices from the script{s.videoSound ? ' with quiet video sound' : ', video sound off'}</span>
-        <button type="button" disabled={busy(run)} onClick={make} className={`${primary} ml-auto`}>
+        <span className="text-[13px] text-muted">
+          {`${ep.scenes.length} scenes · ${fmt(total)} · voices from the script${s.videoSound ? ' with quiet video sound' : ', video sound off'}`}
+        </span>
+        <button type="button" disabled={busy(run) || !ep.scenes.some((sc) => fileOf(tasks, sc.videoTask))} onClick={onEdit}
+          title="Open this episode in the editor: trim, reorder, add text and captions, export. Scenes without video yet are left out."
+          className="ml-auto inline-flex h-9 items-center gap-2 rounded-full border border-line px-4 hover:bg-raised disabled:opacity-40">
+          <Film size={15} /> Open in editor
+        </button>
+        <button type="button" disabled={busy(run)} onClick={make} className={primary}>
           <Clapperboard size={15} /> {ep.cut ? 'Cut again' : 'Make the cut'} {music && needs(tasks, ep.musicTask) && <span className="font-normal opacity-70">{priceLabel(estimate('suno', {}))}</span>}
         </button>
       </div>
@@ -489,6 +494,21 @@ function CutStep({ s, ep, index, tasks, run, rk: k, setEp }: StepProps) {
           <div className="flex max-w-72 flex-col gap-3 text-[13px]">
             <button type="button" onClick={() => api.saveAs({ kind: 'media', file: ep.cut! })} className={primary}><Download size={15} /> Save MP4</button>
             {ep.recap && <p className="leading-relaxed text-muted"><span className="font-medium text-fg">Recap for the next episode:</span> {ep.recap}</p>}
+            {(ep.cuts?.length ?? 0) > 0 && (
+              <div className="flex flex-col gap-1">
+                <span className="text-muted">Earlier cuts</span>
+                {[...ep.cuts!].reverse().map((f, i) => (
+                  <div key={f} className="flex items-center gap-2">
+                    <span className="text-faint tabular-nums">{ep.cuts!.length - i}</span>
+                    <button type="button" className="underline underline-offset-2" onClick={() => void setEp((e) => {
+                      e.cuts = [...(e.cuts ?? []).filter((x) => x !== f), e.cut!]
+                      e.cut = f
+                    })}>Use this one</button>
+                    <button type="button" className="text-muted underline underline-offset-2" onClick={() => api.saveAs({ kind: 'media', file: f })}>Save</button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

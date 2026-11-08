@@ -10,7 +10,7 @@ import { Header, IconButton, SelectChip } from './ui'
 type HeaderProps = { collapsed: boolean; onExpand: () => void }
 const field = 'w-full rounded-lg border border-line bg-bg px-2.5 py-1.5 text-[13px] leading-relaxed focus:border-fg'
 
-export function SeriesView({ header, onChanged }: { header: HeaderProps; onChanged: () => void }) {
+export function SeriesView({ header, onChanged, onOpenEdit }: { header: HeaderProps; onChanged: () => void; onOpenEdit: (id: string) => void }) {
   const { series: list, characters, runs } = useSyncExternalStore(subscribe, getSnapshot)
   const [tab, setTab] = useState<'series' | 'characters'>('series')
   const [openId, setOpenId] = useState<string | null>(null)
@@ -32,7 +32,7 @@ export function SeriesView({ header, onChanged }: { header: HeaderProps; onChang
     return (
       <>
         <SeriesEditor header={header} s={open} characters={characters} tasks={tasks} runs={runs} onBack={() => setOpenId(null)}
-          onDeleted={() => (setJustDeleted(open), setOpenId(null))} onCharacter={setCharId} />
+          onDeleted={() => (setJustDeleted(open), setOpenId(null))} onCharacter={setCharId} onOpenEdit={onOpenEdit} />
         {builder}
       </>
     )
@@ -178,7 +178,7 @@ function SeriesHome({ list, characters, tasks, justDeleted, onUndone, onOpen, on
   )
 }
 
-function SeriesEditor({ header, s, characters, tasks, runs, onBack, onDeleted, onCharacter }: {
+function SeriesEditor({ header, s, characters, tasks, runs, onBack, onDeleted, onCharacter, onOpenEdit }: {
   header: HeaderProps
   s: Series
   characters: Character[]
@@ -187,6 +187,7 @@ function SeriesEditor({ header, s, characters, tasks, runs, onBack, onDeleted, o
   onBack: () => void
   onDeleted: () => void
   onCharacter: (id: string) => void
+  onOpenEdit: (id: string) => void
 }) {
   const [epId, setEpId] = useState(s.episodes[0]?.id)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -309,7 +310,7 @@ function SeriesEditor({ header, s, characters, tasks, runs, onBack, onDeleted, o
           </div>
         </aside>
         {ep ? (
-          <EpisodeView key={ep.id} s={s} ep={ep} index={s.episodes.indexOf(ep)} tasks={tasks} cast={cast} run={runs[`${s.id}:${ep.id}`]} onCharacter={onCharacter} />
+          <EpisodeView key={ep.id} s={s} ep={ep} index={s.episodes.indexOf(ep)} tasks={tasks} cast={cast} run={runs[`${s.id}:${ep.id}`]} onCharacter={onCharacter} onOpenEdit={onOpenEdit} />
         ) : (
           <div className="flex-1" />
         )}

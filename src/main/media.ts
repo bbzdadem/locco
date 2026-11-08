@@ -8,7 +8,7 @@ import { upload } from './kie'
 
 const MIME: Record<string, string> = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif',
-  '.pdf': 'application/pdf', '.mp4': 'video/mp4', '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4', '.webm': 'audio/webm',
+  '.pdf': 'application/pdf', '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.m4v': 'video/mp4', '.aac': 'audio/aac', '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4', '.webm': 'audio/webm',
 }
 export const mimeOf = (file: string) => MIME[extname(file).toLowerCase()] ?? 'application/octet-stream'
 const extOf = (mime: string | null) => Object.entries(MIME).find(([, m]) => m === mime?.split(';')[0])?.[0] ?? ''

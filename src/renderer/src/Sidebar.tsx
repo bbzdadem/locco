@@ -1,4 +1,4 @@
-import { Check, Film, Folder, FolderInput, FolderPlus, Image, PanelLeftClose, Pencil, Pin, PinOff, Search, Settings, SquarePen, Trash2, TriangleAlert, X } from 'lucide-react'
+import { Check, Film, Folder, Scissors, FolderInput, FolderPlus, Image, PanelLeftClose, Pencil, Pin, PinOff, Search, Settings, SquarePen, Trash2, TriangleAlert, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import type { Chat, ChatHit, Project } from '../../shared/types'
 import { api, fmtCredits } from './lib'
@@ -22,6 +22,8 @@ export function Sidebar(props: {
   createActive: boolean
   seriesActive: boolean
   onSeries: () => void
+  editActive: boolean
+  onEdit: () => void
   credits: number | null
   lowBalance: number
   onSelect: (id: string) => void
@@ -74,6 +76,9 @@ export function Sidebar(props: {
         </button>
         <button type="button" className={navItem(props.seriesActive)} onClick={props.onSeries}>
           <Film size={16} /> Series
+        </button>
+        <button type="button" className={navItem(props.editActive)} onClick={props.onEdit}>
+          <Scissors size={16} /> Edit
         </button>
         <label className="mt-1 flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-muted focus-within:bg-raised">
           <Search size={16} />

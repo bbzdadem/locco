@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { Attachment, Character, Chat, ChatEvent, ChatHit, CutRequest, GenerateRequest, MediaKind, Message, Project, Ref, Scene, SendRequest, Series, Settings, Task, UsageRow } from '../shared/types'
+import type { Attachment, Character, Chat, ChatEvent, ChatHit, EditProject, GenerateRequest, MediaKind, Message, Project, ProjectRender, Ref, RenderRequest, Scene, SendRequest, Series, Settings, Task, UsageRow } from '../shared/types'
 
 type Voice = { id: string; name: string; about: string; premade?: boolean }
 
@@ -39,11 +39,16 @@ const api = {
   writeScript: (s: Series, index: number): Promise<Scene[]> => ipcRenderer.invoke('series:script', s, index),
   reviseScript: (s: Series, index: number, scenes: Scene[], change: string): Promise<Scene[]> => ipcRenderer.invoke('series:revise', s, index, scenes, change),
   writeRecap: (s: Series, index: number): Promise<{ recap: string; continuity: string }> => ipcRenderer.invoke('series:recap', s, index),
-  cut: (req: CutRequest): Promise<string> => ipcRenderer.invoke('series:cut', req),
+  render: (req: RenderRequest): Promise<string> => ipcRenderer.invoke('series:render', req),
   characters: (): Promise<Character[]> => ipcRenderer.invoke('characters:list'),
   saveCharacter: (c: Character): Promise<void> => ipcRenderer.invoke('characters:save', c),
   deleteCharacter: (id: string): Promise<void> => ipcRenderer.invoke('characters:delete', id),
-  mediaSeconds: (file: string): Promise<number> => ipcRenderer.invoke('media:seconds', file),
+  mediaSeconds: (file: string | Ref): Promise<number> => ipcRenderer.invoke('media:seconds', file),
+  thumb: (ref: Ref): Promise<Ref> => ipcRenderer.invoke('media:thumb', ref),
+  edits: (): Promise<EditProject[]> => ipcRenderer.invoke('edits:list'),
+  saveEdit: (p: EditProject): Promise<void> => ipcRenderer.invoke('edits:save', p),
+  deleteEdit: (id: string): Promise<void> => ipcRenderer.invoke('edits:delete', id),
+  renderEdit: (req: ProjectRender): Promise<string> => ipcRenderer.invoke('edits:render', req),
   send: (req: SendRequest): Promise<void> => ipcRenderer.invoke('chat:send', req),
   regenerate: (chatId: string, model: string, thinking: boolean, agent: boolean): Promise<void> =>
     ipcRenderer.invoke('chat:regenerate', chatId, model, thinking, agent),
