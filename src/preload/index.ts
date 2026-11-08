@@ -9,7 +9,8 @@ const on = <T>(channel: string) => (cb: (v: T) => void) => {
 
 const api = {
   settings: (): Promise<Settings> => ipcRenderer.invoke('settings:get'),
-  saveSettings: (s: { apiKey?: string; about?: string; model?: string; agentBudget?: number }): Promise<Settings> => ipcRenderer.invoke('settings:set', s),
+  saveSettings: (s: { apiKey?: string; elevenKey?: string; about?: string; model?: string; agentBudget?: number }): Promise<Settings> => ipcRenderer.invoke('settings:set', s),
+  elevenVoices: (): Promise<{ id: string; name: string; about: string; premade: boolean }[]> => ipcRenderer.invoke('eleven:voices'),
   credits: (): Promise<number> => ipcRenderer.invoke('credits'),
   usage: (): Promise<UsageRow[]> => ipcRenderer.invoke('usage'),
 
@@ -27,6 +28,8 @@ const api = {
   series: (): Promise<Series[]> => ipcRenderer.invoke('series:list'),
   saveSeries: (s: Series): Promise<void> => ipcRenderer.invoke('series:save', s),
   deleteSeries: (id: string): Promise<void> => ipcRenderer.invoke('series:delete', id),
+  deletedSeries: (): Promise<{ series: Series; deletedAt: number }[]> => ipcRenderer.invoke('series:deleted'),
+  restoreSeries: (id: string): Promise<void> => ipcRenderer.invoke('series:restore', id),
   writeSeries: (idea: string, episodes: number, seconds: number): Promise<Series> => ipcRenderer.invoke('series:write', idea, episodes, seconds),
   writeEpisode: (s: Series, index: number, shotSeconds: number): Promise<Shot[]> => ipcRenderer.invoke('series:episode', s, index, shotSeconds),
   reviewFrames: (portraits: { name: string; file: string }[], frames: { n: number; description: string; file: string }[]): Promise<{ shot: number; fix: string }[]> =>

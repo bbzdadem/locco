@@ -5,7 +5,7 @@ import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { MEDIA_MODELS } from '../shared/models'
+import { ELEVEN_VOICES } from '../shared/models'
 import type { Attachment, CutRequest, Series } from '../shared/types'
 import { complete } from './chat'
 import { db, dirs } from './db'
@@ -13,10 +13,21 @@ import { db, dirs } from './db'
 const run = promisify(execFile)
 const WRITER = 'gpt-6-sol'
 
+const DAY = 86_400_000
 export const listSeries = () =>
-  (db.prepare('SELECT data FROM series ORDER BY updated_at DESC').all() as { data: string }[]).map((r) => JSON.parse(r.data) as Series)
-export const saveSeries = (s: Series) => void db.prepare('INSERT OR REPLACE INTO series (id, data, updated_at) VALUES (?, ?, ?)').run(s.id, JSON.stringify(s), Date.now())
-export const deleteSeries = (id: string) => void db.prepare('DELETE FROM series WHERE id = ?').run(id)
+  (db.prepare('SELECT data FROM series WHERE deleted_at IS NULL ORDER BY updated_at DESC').all() as { data: string }[]).map((r) => JSON.parse(r.data) as Series)
+// Saving never brings a deleted series back (an episode still being made keeps saving into it).
+export const saveSeries = (s: Series) =>
+  void db.prepare('INSERT INTO series (id, data, updated_at) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at')
+    .run(s.id, JSON.stringify(s), Date.now())
+// Deleted series stay restorable for 30 days, then they're removed for good.
+export const deleteSeries = (id: string) => void db.prepare('UPDATE series SET deleted_at = ? WHERE id = ?').run(Date.now(), id)
+export const restoreSeries = (id: string) => void db.prepare('UPDATE series SET deleted_at = NULL WHERE id = ?').run(id)
+export function deletedSeries() {
+  db.prepare('DELETE FROM series WHERE deleted_at < ?').run(Date.now() - 30 * DAY)
+  return (db.prepare('SELECT data, deleted_at FROM series WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC').all() as { data: string; deleted_at: number }[])
+    .map((r) => ({ series: JSON.parse(r.data) as Series, deletedAt: r.deleted_at }))
+}
 
 // Models wrap JSON in prose or code fences now and then; take the outermost object.
 function json<T>(text: string): T {
@@ -26,11 +37,10 @@ function json<T>(text: string): T {
   return JSON.parse(text.slice(start, end + 1))
 }
 
-const voices = () => MEDIA_MODELS.find((m) => m.id === 'tts-turbo')!.text!.fields.find((f) => f.name === 'voice')!.enumLabels ?? {}
-const voiceId = (name?: string) => Object.entries(voices()).find(([, n]) => n.toLowerCase() === String(name ?? '').toLowerCase())?.[0]
+const voiceId = (name?: string) => ELEVEN_VOICES.find((v) => v.name.toLowerCase() === String(name ?? '').trim().toLowerCase())?.id
 
 export async function writeSeries(idea: string, episodes: number, seconds: number): Promise<Series> {
-  const names = [...new Set(Object.values(voices()))].slice(0, 40).join(', ')
+  const names = ELEVEN_VOICES.slice(0, 60).map((v) => (v.about ? `${v.name} (${v.about})` : v.name)).join('; ') || 'none (leave voice empty)'
   const out = json<any>(await complete(WRITER, [
     `You are the showrunner of a vertical short-form series (9:16, about ${seconds}-second episodes, for TikTok and Reels).`,
     'From the idea, write the series bible. Reply with JSON only:',
@@ -38,7 +48,7 @@ export async function writeSeries(idea: string, episodes: number, seconds: numbe
     ' "characters": [{"name": "...", "look": "precise visual description an image model can repeat exactly: age, face, skin, hair, build, clothes",',
     '   "personality": "...", "voice": "one voice name from the list"}],',
     ` "episodes": [{"title": "...", "summary": "2-3 sentences: a hook in the first seconds, a clear turn, and a punchline or cliffhanger"}]}`,
-    `Write exactly ${episodes} episodes and 1 to 4 characters. Voice names to choose from: ${names}.`,
+    `Write exactly ${episodes} episodes and 1 to 4 characters. Voices to choose from (use the name only): ${names}.`,
     "Write in the language of the user's idea.",
   ].join('\n'), idea))
   return {

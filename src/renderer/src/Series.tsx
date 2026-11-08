@@ -1,7 +1,7 @@
-import { ArrowLeft, Clapperboard, Download, Film, ImagePlus, LoaderCircle, Plus, RotateCcw, Square, Trash2, TriangleAlert, UserRound } from 'lucide-react'
+import { ArrowLeft, Clapperboard, Download, Film, ImagePlus, LoaderCircle, Plus, RotateCcw, Square, Trash2, TriangleAlert, Undo2, UserRound, X } from 'lucide-react'
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { buildInput, fill, slotsOf } from '../../shared/inputs'
-import { MEDIA_MODELS, withBest } from '../../shared/models'
+import { ELEVEN_VOICES, MEDIA_MODELS, withBest } from '../../shared/models'
 import { estimate, priceLabel } from '../../shared/prices'
 import type { Attachment, Character, Episode, MediaModel, Series, Shot, Task } from '../../shared/types'
 import { elapsed, isVideo, Media } from './Create'
@@ -56,7 +56,6 @@ function videoValues(m: MediaModel) {
   return v
 }
 const img = (file: string): Attachment => ({ kind: 'media', file, name: file, mime: 'image/png' })
-const VOICES = Object.entries(spec(model('tts-turbo')).fields.find((f) => f.name === 'voice')?.enumLabels ?? {})
 
 type Tasks = Record<string, Task>
 const stateOf = (tasks: Tasks, id?: string) =>
@@ -181,7 +180,7 @@ async function runEpisode(sid: string, eid: string) {
     const spokenLines = await makeAll(key, `Recording ${voices.length} voice lines…`, 'voice lines', voices,
       (sh) => {
         const voice = voiceOf(get(sid), sh)
-        return makeOne('tts-turbo', voice ? { voice } : {}, [], sh.line)
+        return makeOne('el-tts', voice ? { voice } : {}, [], sh.line)
       },
       (pairs) => update(sid, (s) => pairs.forEach(([sh, id]) => (shotIn(s, sh.id).voiceTask = id))), true)
 
@@ -219,7 +218,7 @@ function remaining(s: Series, ep: Episode, t: Tasks) {
     s.characters.filter((c) => cast.has(c.id) && needs(t, c.portraitTask)).length * image +
     shots.filter((sh) => needs(t, sh.frameTask)).length * image +
     shots.filter((sh) => needs(t, sh.videoTask)).length * video +
-    (speaks(vm) ? 0 : shots.filter((sh) => sh.line && needs(t, sh.voiceTask)).reduce((n, sh) => n + (estimate('tts-turbo', {}, sh.line.length)?.hi ?? 0), 0)) +
+    (speaks(vm) ? 0 : shots.filter((sh) => sh.line && needs(t, sh.voiceTask)).reduce((n, sh) => n + (estimate('el-tts', {}, sh.line.length)?.hi ?? 0), 0)) +
     (needs(t, ep.musicTask) ? (estimate('suno', {})?.hi ?? 0) : 0) +
     3 // writing and checking with GPT 6 Sol
   return priceLabel({ lo: credits, hi: credits, perSecond: false })
@@ -230,6 +229,7 @@ function remaining(s: Series, ep: Episode, t: Tasks) {
 export function SeriesView({ header, onChanged }: { header: { collapsed: boolean; onExpand: () => void }; onChanged: () => void }) {
   const { docs: list, runs: running } = useSyncExternalStore(subscribe, getSnapshot)
   const [openId, setOpenId] = useState<string | null>(null)
+  const [justDeleted, setJustDeleted] = useState<Series | null>(null)
   const [tasks, setTasks] = useState<Tasks>({})
   useEffect(() => {
     void load()
@@ -238,11 +238,23 @@ export function SeriesView({ header, onChanged }: { header: { collapsed: boolean
     return api.onTasks(() => (refresh(), onChanged()))
   }, [onChanged])
   const open = list.find((s) => s.id === openId)
-  if (!open) return <SeriesHome header={header} list={list} onOpen={setOpenId} />
-  return <SeriesEditor header={header} series={open} tasks={tasks} runs={running} onBack={() => setOpenId(null)} />
+  if (!open) return <SeriesHome header={header} list={list} justDeleted={justDeleted} onUndone={() => setJustDeleted(null)} onOpen={(id) => (setJustDeleted(null), setOpenId(id))} />
+  return (
+    <SeriesEditor header={header} series={open} tasks={tasks} runs={running} onBack={() => setOpenId(null)}
+      onDeleted={() => (setJustDeleted(open), setOpenId(null))} />
+  )
 }
 
-function SeriesHome({ header, list, onOpen }: { header: { collapsed: boolean; onExpand: () => void }; list: Series[]; onOpen: (id: string) => void }) {
+function SeriesHome({ header, list, justDeleted, onUndone, onOpen }: {
+  header: { collapsed: boolean; onExpand: () => void }
+  list: Series[]
+  justDeleted: Series | null
+  onUndone: () => void
+  onOpen: (id: string) => void
+}) {
+  const [deleted, setDeleted] = useState<{ series: Series; deletedAt: number }[]>([])
+  useEffect(() => void api.deletedSeries().then(setDeleted), [list])
+  const restore = (id: string) => api.restoreSeries(id).then(load).then(onUndone)
   const [idea, setIdea] = useState('')
   const [episodes, setEpisodes] = useState('3')
   const [seconds, setSeconds] = useState('45')
@@ -270,6 +282,17 @@ function SeriesHome({ header, list, onOpen }: { header: { collapsed: boolean; on
       </Header>
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-3xl flex-col gap-8 px-6 pt-6 pb-16">
+          {justDeleted && (
+            <div className="flex items-center gap-3 rounded-xl bg-raised px-4 py-2.5 text-[13px]">
+              <span className="min-w-0 flex-1 truncate">Deleted “{justDeleted.title}”.</span>
+              <button type="button" onClick={() => restore(justDeleted.id)} className="inline-flex h-8 items-center gap-1.5 rounded-full bg-inverse px-3.5 font-medium text-on-inverse">
+                <Undo2 size={14} /> Undo
+              </button>
+              <IconButton title="Dismiss" className="size-7" onClick={onUndone}>
+                <X size={14} />
+              </IconButton>
+            </div>
+          )}
           <div className="flex flex-col gap-3 rounded-3xl border border-line bg-surface p-4 shadow-[0_2px_12px_rgba(0,0,0,0.04)]">
             <textarea
               id="series-idea"
@@ -309,6 +332,24 @@ function SeriesHome({ header, list, onOpen }: { header: { collapsed: boolean; on
               ))}
             </div>
           )}
+          {deleted.length > 0 && (
+            <div className="flex flex-col gap-1">
+              <h2 className="mb-1 font-medium text-muted">Recently deleted</h2>
+              {deleted.map(({ series: d, deletedAt }) => (
+                <div key={d.id} className="flex items-center gap-3 rounded-xl px-3 py-2">
+                  <div className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-muted">{d.title}</span>
+                    <span className="text-xs text-faint">
+                      Deleted {new Date(deletedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} · removed for good after {Math.max(1, 30 - Math.floor((Date.now() - deletedAt) / 86_400_000))} days
+                    </span>
+                  </div>
+                  <button type="button" onClick={() => restore(d.id)} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-line px-3 text-[13px] hover:bg-raised">
+                    <Undo2 size={14} /> Restore
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -317,15 +358,33 @@ function SeriesHome({ header, list, onOpen }: { header: { collapsed: boolean; on
 
 const field = 'w-full rounded-lg border border-line bg-bg px-2.5 py-1.5 text-[13px] leading-relaxed focus:border-fg'
 
-function SeriesEditor({ header, series: s, tasks, runs: running, onBack }: {
+function SeriesEditor({ header, series: s, tasks, runs: running, onBack, onDeleted }: {
   header: { collapsed: boolean; onExpand: () => void }
   series: Series
   tasks: Tasks
   runs: typeof runs
   onBack: () => void
+  onDeleted: () => void
 }) {
   const [epId, setEpId] = useState(s.episodes[0]?.id)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [confirmEp, setConfirmEp] = useState<string | null>(null)
+  const [removed, setRemoved] = useState<{ episode: Episode; index: number } | null>(null)
+  // An episode with shots asks first; an empty one goes straight away. Either way Undo brings it back.
+  function removeEpisode(e: Episode) {
+    if (e.shots.length && confirmEp !== e.id) return setConfirmEp(e.id)
+    const index = s.episodes.findIndex((x) => x.id === e.id)
+    setConfirmEp(null)
+    setRemoved({ episode: e, index })
+    if (e.id === ep?.id) setEpId(s.episodes[index + 1]?.id ?? s.episodes[index - 1]?.id)
+    set((x) => void (x.episodes = x.episodes.filter((y) => y.id !== e.id)))
+  }
+  function undoRemove() {
+    if (!removed) return
+    set((x) => void x.episodes.splice(Math.min(removed.index, x.episodes.length), 0, removed.episode))
+    setEpId(removed.episode.id)
+    setRemoved(null)
+  }
   const ep = s.episodes.find((e) => e.id === epId) ?? s.episodes[0]
   const seriesBusy = Object.entries(running).some(([k, r]) => k.startsWith(`${s.id}:`) && r.step)
   const set = (fn: (x: Series) => void) => void update(s.id, fn)
@@ -373,9 +432,9 @@ function SeriesEditor({ header, series: s, tasks, runs: running, onBack }: {
                       <input aria-label="Character name" value={c.name} onChange={(e) => setChar(c.id, { name: e.target.value })} className="bg-transparent font-medium" />
                       <select aria-label={`${c.name}'s voice`} value={c.voice ?? ''} onChange={(e) => setChar(c.id, { voice: e.target.value || undefined })} className="w-full rounded-md bg-transparent text-xs text-muted">
                         <option value="">Default voice</option>
-                        {VOICES.map(([id, name]) => (
-                          <option key={id} value={id}>
-                            Voice: {name}
+                        {ELEVEN_VOICES.map((v) => (
+                          <option key={v.id} value={v.id}>
+                            Voice: {v.name}{v.about ? ` (${v.about})` : ''}
                           </option>
                         ))}
                       </select>
@@ -396,14 +455,41 @@ function SeriesEditor({ header, series: s, tasks, runs: running, onBack }: {
 
           <div className="flex flex-col gap-0.5">
             <span className="mb-1 text-xs text-muted">Episodes</span>
-            {s.episodes.map((e, i) => (
-              <button key={e.id} type="button" onClick={() => setEpId(e.id)} className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] ${e.id === ep?.id ? 'bg-raised' : 'hover:bg-raised'}`}>
-                <span className="text-faint tabular-nums">{i + 1}</span>
-                <span className="truncate">{e.title || 'Untitled'}</span>
-                {running[`${s.id}:${e.id}`]?.step && <LoaderCircle size={13} className="ml-auto shrink-0 animate-spin text-muted" />}
-                {!running[`${s.id}:${e.id}`]?.step && e.cut && <Film size={13} className="ml-auto shrink-0 text-muted" />}
-              </button>
-            ))}
+            {s.episodes.map((e, i) =>
+              confirmEp === e.id ? (
+                <div key={e.id} className="flex items-center gap-2 rounded-lg bg-raised px-2.5 py-1.5 text-[13px]">
+                  <span className="min-w-0 flex-1">Remove “{e.title || 'Untitled'}”? Its images and videos stay in Create.</span>
+                  <button type="button" onClick={() => removeEpisode(e)} className="h-7 shrink-0 rounded-full bg-inverse px-3 font-medium text-on-inverse">
+                    Remove
+                  </button>
+                  <IconButton title="Keep" className="size-7" onClick={() => setConfirmEp(null)}>
+                    <X size={14} />
+                  </IconButton>
+                </div>
+              ) : (
+                <div key={e.id} className={`group flex items-center rounded-lg pr-1 ${e.id === ep?.id ? 'bg-raised' : 'hover:bg-raised'}`}>
+                  <button type="button" onClick={() => setEpId(e.id)} className="flex min-w-0 flex-1 items-center gap-2 px-2.5 py-1.5 text-left text-[13px]">
+                    <span className="text-faint tabular-nums">{i + 1}</span>
+                    <span className="truncate">{e.title || 'Untitled'}</span>
+                    {running[`${s.id}:${e.id}`]?.step && <LoaderCircle size={13} className="ml-auto shrink-0 animate-spin text-muted" />}
+                    {!running[`${s.id}:${e.id}`]?.step && e.cut && <Film size={13} className="ml-auto shrink-0 text-muted" />}
+                  </button>
+                  {!running[`${s.id}:${e.id}`]?.step && (
+                    <IconButton title="Remove episode" className="hidden size-7 group-hover:inline-flex" onClick={() => removeEpisode(e)}>
+                      <X size={14} />
+                    </IconButton>
+                  )}
+                </div>
+              ),
+            )}
+            {removed && (
+              <div className="flex items-center gap-2 px-2.5 py-1 text-[13px] text-muted">
+                <span className="min-w-0 flex-1 truncate">Removed “{removed.episode.title || 'Untitled'}”.</span>
+                <button type="button" onClick={undoRemove} className="inline-flex shrink-0 items-center gap-1 font-medium text-fg underline underline-offset-2">
+                  Undo
+                </button>
+              </div>
+            )}
             <button
               type="button"
               onClick={() => set((x) => void x.episodes.push({ id: crypto.randomUUID(), title: `Episode ${x.episodes.length + 1}`, summary: '', shots: [] }))}
@@ -416,9 +502,12 @@ function SeriesEditor({ header, series: s, tasks, runs: running, onBack }: {
           <div className="mt-auto flex items-center gap-2 border-t border-line pt-3 text-[13px]">
             {confirmDelete ? (
               <>
-                <span>Delete this series? Its images and videos stay in Create.</span>
-                <button type="button" onClick={() => api.deleteSeries(s.id).then(load).then(onBack)} className="h-8 shrink-0 rounded-full bg-inverse px-3 font-medium text-on-inverse">
+                <span>Delete this series? You can restore it from Series for 30 days.</span>
+                <button type="button" onClick={() => api.deleteSeries(s.id).then(load).then(onDeleted)} className="h-8 shrink-0 rounded-full bg-inverse px-3 font-medium text-on-inverse">
                   Delete
+                </button>
+                <button type="button" onClick={() => setConfirmDelete(false)} className="h-8 shrink-0 rounded-full px-3 hover:bg-raised">
+                  Keep
                 </button>
               </>
             ) : (
@@ -493,7 +582,7 @@ function EpisodePanel({ s, ep, index, tasks, run }: { s: Series; ep: Episode; in
             <span className="inline-flex items-center gap-1.5 text-danger"><TriangleAlert size={13} /> {run.error}</span>
           ) : run?.note ? (
             <span title={run.note}>{run.note}</span>
-          ) : speaks(vm) ? 'The video model speaks the lines.' : 'Lines are voiced with ElevenLabs.'}
+          ) : speaks(vm) ? 'The video model speaks the lines.' : ELEVEN_VOICES.length ? 'Lines are voiced with your ElevenLabs voices.' : 'Add your ElevenLabs key in Settings to voice the lines.'}
         </span>
         {busy ? (
           <button type="button" onClick={() => setRun(key, { ...run!, stop: true, step: 'Stopping after this step…' })} className="inline-flex h-9 items-center gap-2 rounded-full border border-line px-4 hover:bg-raised">

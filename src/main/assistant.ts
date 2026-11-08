@@ -46,7 +46,7 @@ export function systemAddon() {
   })
   return [
     'You can make images, videos, music and speech with the generate_media tool. Use it whenever the user asks for a picture, photo, illustration, logo, edit, animation, video, song, jingle, soundtrack or voice-over.',
-    'Pick the model that fits (each line says what it is best for). Use gpt-image-2 for images unless the user names another model or the job clearly needs one: nano-banana-pro for mixing several reference images, ideogram-v3 for posters and lettering, kling-3 or veo-3-1 for video, grok-imagine for cheap quick video tests, suno for songs and music, tts-turbo for a voice reading text.',
+    'Pick the model that fits (each line says what it is best for). Use gpt-image-2 for images unless the user names another model or the job clearly needs one: nano-banana-pro for mixing several reference images, ideogram-v3 for posters and lettering, kling-3 or veo-3-1 for video, grok-imagine for cheap quick video tests, suno or el-music for songs and music, el-tts for a voice reading text (pick a voice from its list), el-sfx for sound effects.',
     'To edit, combine or animate an image, pass its id in `images`. Results you made earlier are listed in the chat with their ids.',
     'After calling the tool, say in one short sentence what you started. Do not claim it is finished: the user sees it appear.',
     'Catalog (settings use these exact values):',

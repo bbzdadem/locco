@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { setElevenVoices } from '../../shared/models'
 import type { Attachment, Chat, Project, Settings } from '../../shared/types'
 import { ChatView } from './Chat'
 import { Create } from './Create'
@@ -24,11 +25,16 @@ export default function App() {
   const refreshChats = useCallback(() => void api.chats().then(setChats), [])
   const refreshProjects = useCallback(() => void api.projects().then(setProjects), [])
   const refreshCredits = useCallback(() => void api.credits().then(setCredits, () => setCredits(null)), [])
+  // ElevenLabs voices fill the voice menus; `voices` re-renders the screens once they arrive.
+  const [, setVoices] = useState(0)
+  const refreshVoices = useCallback(() => void api.elevenVoices().then((list) => (setElevenVoices(list), setVoices(list.length))), [])
   const newChat = useCallback((projectId?: string) => setView({ kind: 'chat', id: crypto.randomUUID(), projectId }), [])
 
   useEffect(() => {
     refreshChats()
     refreshProjects()
+    refreshVoices()
+    setTimeout(refreshVoices, 4000) // the main process loads them in the background at launch
     api.settings().then((s) => {
       setSettings(s)
       if (s.hasKey) refreshCredits()
@@ -42,7 +48,7 @@ export default function App() {
     }
     addEventListener('keydown', onKey)
     return () => (offFocus(), offQuick(), removeEventListener('keydown', onKey))
-  }, [refreshChats, refreshProjects, refreshCredits, newChat])
+  }, [refreshChats, refreshProjects, refreshCredits, refreshVoices, newChat])
 
   const setSidebar = (v: boolean) => (setCollapsed(v), save('sidebarCollapsed', v))
   if (!settings) return null
@@ -108,7 +114,7 @@ export default function App() {
         <SettingsDialog
           settings={settings}
           onClose={() => setSettingsOpen(false)}
-          onSaved={(s) => (setSettings(s), refreshCredits())}
+          onSaved={(s) => (setSettings(s), refreshCredits(), refreshVoices())}
         />
       )}
       {usageOpen && (

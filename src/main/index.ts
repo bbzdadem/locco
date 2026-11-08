@@ -3,16 +3,17 @@ import { createReadStream } from 'node:fs'
 import { copyFile, stat, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { Readable } from 'node:stream'
-import { chatModel } from '../shared/models'
+import { chatModel, ELEVEN_VOICES, setElevenVoices } from '../shared/models'
 import type { ChatEvent, CutRequest, GenerateRequest, MediaKind, Project, Ref, SendRequest, Series, Settings } from '../shared/types'
 import {
   cancelCall, deleteChat, deleteProject, enhancePrompt, exportMarkdown, getMessages, listChats, listProjects, moveChat, pinChat, regenerate,
   renameChat, runCall, saveProject, searchChats, send, stopChat,
 } from './chat'
 import { dirs, getSetting, openDb, setSetting, usage } from './db'
+import { hasElevenKey, setElevenKey, voices } from './eleven'
 import { credits, setKey } from './kie'
 import { mimeOf, pathOf, saveUpload } from './media'
-import { cut, deleteSeries, listSeries, reviewFrames, saveSeries, writeEpisode, writeSeries } from './series'
+import { cut, deletedSeries, deleteSeries, listSeries, restoreSeries, reviewFrames, saveSeries, writeEpisode, writeSeries } from './series'
 import { generate, listTasks, removeTask, starTask, startPoller, transcribe } from './tasks'
 
 let win: BrowserWindow | null = null
@@ -21,11 +22,24 @@ let keySource: Settings['keySource'] = null
 // locco://media/<file> and locco://uploads/<file> serve local files to the window, and nothing outside those folders.
 protocol.registerSchemesAsPrivileged([{ scheme: 'locco', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }])
 
+const decrypt = async (b64: string) => (await safeStorage.decryptStringAsync(Buffer.from(b64, 'base64'))).result
+const encrypt = async (text: string) => (await safeStorage.encryptStringAsync(text)).toString('base64')
+
+// The ElevenLabs key and its voices. Voices load in the background so startup doesn't wait on ElevenLabs.
+async function loadElevenKey() {
+  const saved = getSetting('elevenKey')
+  if (!saved) return
+  try {
+    setElevenKey(await decrypt(saved))
+    void voices().then(setElevenVoices, () => {})
+  } catch {} // Keychain refused: paste the key again in Settings.
+}
+
 async function loadKey() {
   const saved = getSetting('apiKey')
   if (saved) {
     try {
-      setKey((await safeStorage.decryptStringAsync(Buffer.from(saved, 'base64'))).result)
+      setKey(await decrypt(saved))
       keySource = 'saved'
       return
     } catch {} // Keychain refused: fall through and ask again in Settings.
@@ -47,6 +61,8 @@ const settings = (): Settings => ({
   about: getSetting('about') ?? '',
   model: chatModel(getSetting('model')).id,
   agentBudget: Number(getSetting('agentBudget')) || 2,
+  hasEleven: hasElevenKey(),
+  elevenVoices: ELEVEN_VOICES.length,
 })
 
 function createWindow() {
@@ -83,6 +99,7 @@ const emit = (e: ChatEvent) => win?.webContents.send('chat:event', e)
 app.whenReady().then(async () => {
   openDb(app.getPath('userData'))
   await loadKey()
+  await loadElevenKey()
 
   protocol.handle('locco', async (req) => {
     const { host, pathname } = new URL(req.url)
@@ -105,12 +122,19 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('settings:get', settings)
-  ipcMain.handle('settings:set', async (_e, s: { apiKey?: string; about?: string; model?: string; agentBudget?: number }) => {
+  ipcMain.handle('settings:set', async (_e, s: { apiKey?: string; elevenKey?: string; about?: string; model?: string; agentBudget?: number }) => {
+    if (s.elevenKey?.trim()) {
+      const k = s.elevenKey.trim()
+      const list = await voices(k) // throws a readable error if ElevenLabs refuses the key, before anything is saved
+      setElevenKey(k)
+      setElevenVoices(list)
+      setSetting('elevenKey', await encrypt(k))
+    }
     if (s.apiKey !== undefined) {
       const k = s.apiKey.trim()
       setKey(k)
       await credits() // throws a readable error if the key is wrong, before anything is saved
-      setSetting('apiKey', (await safeStorage.encryptStringAsync(k)).toString('base64'))
+      setSetting('apiKey', await encrypt(k))
       keySource = 'saved'
     }
     if (s.about !== undefined) setSetting('about', s.about)
@@ -119,6 +143,7 @@ app.whenReady().then(async () => {
     return settings()
   })
   ipcMain.handle('credits', () => credits())
+  ipcMain.handle('eleven:voices', () => ELEVEN_VOICES)
   ipcMain.handle('usage', () => usage())
 
   ipcMain.handle('chats:list', listChats)
@@ -141,6 +166,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('series:list', listSeries)
   ipcMain.handle('series:save', (_e, s: Series) => saveSeries(s))
   ipcMain.handle('series:delete', (_e, id: string) => deleteSeries(id))
+  ipcMain.handle('series:deleted', deletedSeries)
+  ipcMain.handle('series:restore', (_e, id: string) => restoreSeries(id))
   ipcMain.handle('series:write', (_e, idea: string, episodes: number, seconds: number) => writeSeries(idea, episodes, seconds))
   ipcMain.handle('series:episode', (_e, s: Series, index: number, shotSeconds: number) => writeEpisode(s, index, shotSeconds))
   ipcMain.handle('series:review', (_e, portraits: { name: string; file: string }[], frames: { n: number; description: string; file: string }[]) =>

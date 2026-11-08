@@ -8,6 +8,7 @@ import { api, errMsg, fmtCredits } from './lib'
 export function SettingsDialog({ settings, onClose, onSaved }: { settings: Settings; onClose: () => void; onSaved: (s: Settings) => void }) {
   const welcome = !settings.hasKey
   const [key, setKey] = useState('')
+  const [elevenKey, setElevenKey] = useState('')
   const [about, setAbout] = useState(settings.about)
   const [model, setModel] = useState(settings.model)
   const [budget, setBudget] = useState(String(settings.agentBudget))
@@ -20,10 +21,11 @@ export function SettingsDialog({ settings, onClose, onSaved }: { settings: Setti
     setBusy(true)
     setError('')
     try {
-      onSaved(await api.saveSettings({ ...(key.trim() && { apiKey: key }), about, model, agentBudget: Number(budget) || settings.agentBudget }))
+      onSaved(await api.saveSettings({ ...(key.trim() && { apiKey: key }), ...(elevenKey.trim() && { elevenKey }), about, model, agentBudget: Number(budget) || settings.agentBudget }))
       onClose()
     } catch (err) {
-      setError(errMsg(err).includes('401') || /access|auth/i.test(errMsg(err)) ? 'kie rejected that key. Check it and paste it again.' : errMsg(err))
+      const msg = errMsg(err)
+      setError(msg.includes('ElevenLabs') ? msg : msg.includes('401') || /access|auth/i.test(msg) ? 'kie rejected that key. Check it and paste it again.' : msg)
     } finally {
       setBusy(false)
     }
@@ -68,6 +70,26 @@ export function SettingsDialog({ settings, onClose, onSaved }: { settings: Setti
             {keyStatus} Get a key at{' '}
             <a href="https://kie.ai/api-key" target="_blank" rel="noreferrer" className="underline underline-offset-2">
               kie.ai/api-key
+            </a>
+            .
+          </span>
+        </label>
+
+        <label className="flex flex-col gap-2">
+          <span className="font-medium">ElevenLabs API key</span>
+          <input
+            id="eleven-key"
+            type="password"
+            value={elevenKey}
+            onChange={(e) => setElevenKey(e.target.value)}
+            placeholder={settings.hasEleven ? 'Paste a new key to replace it' : 'Paste your ElevenLabs key'}
+            className="h-10 rounded-xl border border-line bg-bg px-3 font-mono text-[13px] focus:border-fg"
+          />
+          <span className="text-xs text-muted">
+            {settings.hasEleven ? `Saved, encrypted on this Mac. ${settings.elevenVoices} voices available.` : 'Used for voices, sound effects, music and voice isolation, billed to your ElevenLabs plan.'}{' '}
+            Make one at{' '}
+            <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" rel="noreferrer" className="underline underline-offset-2">
+              elevenlabs.io › API keys
             </a>
             .
           </span>
@@ -126,7 +148,7 @@ export function SettingsDialog({ settings, onClose, onSaved }: { settings: Setti
               </button>
             )}
             <button type="submit" disabled={busy} className="h-9 rounded-full bg-inverse px-5 font-medium text-on-inverse disabled:opacity-50">
-              {busy ? 'Checking key…' : welcome ? 'Start' : 'Save'}
+              {busy ? 'Checking…' : welcome ? 'Start' : 'Save'}
             </button>
           </div>
         </div>

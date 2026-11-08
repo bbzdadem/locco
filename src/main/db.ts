@@ -43,6 +43,7 @@ export function openDb(root: string) {
   addColumn('chats', 'project_id', 'TEXT')
   addColumn('chats', 'summary', 'TEXT')
   addColumn('chats', 'summary_upto', 'INTEGER')
+  addColumn('series', 'deleted_at', 'INTEGER')
 }
 
 export const getSetting = (k: string) => (db.prepare('SELECT v FROM settings WHERE k = ?').get(k) as { v: string } | undefined)?.v

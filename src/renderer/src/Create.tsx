@@ -1,6 +1,6 @@
-import { AudioLines, Clapperboard, Download, Image, ImagePlus, LoaderCircle, Maximize2, MessageSquare, Music, Play, Plus, RotateCcw, Scissors, SlidersHorizontal, Sparkles, Star, Trash2, TriangleAlert, WandSparkles, X } from 'lucide-react'
+import { AudioLines, AudioWaveform, Clapperboard, Download, Image, ImagePlus, LoaderCircle, Maximize2, MessageSquare, Music, Play, Plus, RotateCcw, Scissors, SlidersHorizontal, Sparkles, Star, Trash2, TriangleAlert, WandSparkles, X } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
-import { bestFor, generators, kindOf, MEDIA_MODELS, withBest } from '../../shared/models'
+import { bestFor, generators, isEleven, kindOf, MEDIA_MODELS, withBest } from '../../shared/models'
 import { buildInput, capOf, fill, isMain, refList, resolveMentions, slotLabel, slotsOf, valid, current, type Refs } from '../../shared/inputs'
 import { estimate, priceLabel } from '../../shared/prices'
 import type { Attachment, Field, MediaKind, Task } from '../../shared/types'
@@ -411,6 +411,7 @@ export function Create({ header, onChanged, onSendToChat }: { header: HeaderProp
               placeholder={`${
                 tab === 'audio'
                   ? promptField?.name === 'text' ? 'Type what the voice should say'
+                  : model.id === 'el-sfx' ? 'Describe the sound: rain on a tin roof, then distant thunder'
                   : v.custom_mode === true ? 'Lyrics, with [Verse] and [Chorus] tags' : 'Describe the song: mood, genre, instruments, what it’s about'
                   : tab === 'video'
                   ? hasRefs ? 'Describe the motion, camera and sound' : 'Describe the video you want'
@@ -514,12 +515,12 @@ export function Create({ header, onChanged, onSendToChat }: { header: HeaderProp
                 {busy ? <LoaderCircle size={15} className="animate-spin" /> : <Sparkles size={15} />}
                 Generate
               </button>
-              {(missing || cost) && (
+              {(missing || cost || isEleven(model.id)) && (
                 <span
                   className="pr-1 text-[11px] text-faint tabular-nums"
                   title="Estimate from kie.ai's price list (1 credit ≈ $0.005). Each result shows what kie actually charged."
                 >
-                  {missing ? `Add a ${slotLabel(missing, tab).toLowerCase() || 'reference image'} to start` : cost}
+                  {missing ? `Add a ${slotLabel(missing, tab).toLowerCase() || 'reference image'} to start` : isEleven(model.id) ? 'Billed to your ElevenLabs plan' : cost}
                 </span>
               )}
             </div>
@@ -576,6 +577,7 @@ function actionList(it: Item, a: Actions) {
     return [
       suno && { title: `Extend this song (${priceLabel(estimate('suno-extend', {}))})`, Icon: Plus, run: () => a.suno('suno-extend', it) },
       suno && { title: `Split vocals and music (${priceLabel(estimate('suno-stems', {}))})`, Icon: AudioLines, run: () => a.suno('suno-stems', it) },
+      { title: 'Isolate the voice, remove background noise (ElevenLabs)', Icon: AudioWaveform, run: () => a.tool('el-isolate', it) },
       { title: it.task.starred ? 'Remove from favorites' : 'Add to favorites', Icon: Star, run: () => a.star(it.task) },
       { title: 'Reuse prompt and settings', Icon: RotateCcw, run: () => a.reuse(it.task) },
       { title: 'Save as…', Icon: Download, run: () => a.saveAs(it.file!) },

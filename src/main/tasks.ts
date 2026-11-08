@@ -1,7 +1,11 @@
 import { shell } from 'electron'
-import { MEDIA_MODELS } from '../shared/models'
-import type { GenerateRequest, Ref, Task } from '../shared/types'
-import { db } from './db'
+import { randomUUID } from 'node:crypto'
+import { writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { isEleven, MEDIA_MODELS } from '../shared/models'
+import type { GenerateRequest, MediaModel, ModelSpec, Ref, Task } from '../shared/types'
+import { db, dirs } from './db'
+import { runEleven } from './eleven'
 import { current, isMain } from '../shared/inputs'
 import { createTask, taskInfo } from './kie'
 import { download, kieUrlFor, pathOf } from './media'
@@ -23,6 +27,7 @@ export async function generate(req: GenerateRequest): Promise<string[]> {
   const model = MEDIA_MODELS.find((m) => m.id === req.modelId)
   const spec = model?.[req.variant]
   if (!model || !spec) throw new Error('That model is not available.')
+  if (isEleven(model.id)) return startEleven(model, spec, req)
   // Build the kie input from the model's own field list. Local files become hosted URLs here.
   const input: Record<string, unknown> = { ...spec.fixed }
   for (const f of spec.fields) {
@@ -56,6 +61,39 @@ export async function generate(req: GenerateRequest): Promise<string[]> {
   return ids
 }
 
+// ElevenLabs answers with the audio directly: the job is saved as generating, then finished when the reply arrives.
+function startEleven(model: MediaModel, spec: ModelSpec, req: GenerateRequest) {
+  const main = spec.fields.find(isMain)
+  if (main?.required && !req.prompt.trim()) throw new Error(main.name === 'text' ? 'Type what the voice should say.' : 'Write a prompt first.')
+  const input: Record<string, unknown> = {}
+  for (const f of spec.fields) {
+    if (isMain(f)) continue
+    const v = req.input[f.name] ?? (f.media ? undefined : current(f, undefined))
+    if (v === undefined || v === '') {
+      if (f.required) throw new Error(f.name === 'voice' ? 'Pick a voice. Add your ElevenLabs key in Settings to load your voices.' : `${model.label} needs ${f.name}.`)
+      continue
+    }
+    input[f.name] = v
+  }
+  const ids: string[] = []
+  for (let i = 0; i < Math.min(Math.max(Math.round(req.count) || 1, 1), 4); i++) {
+    const id = `el-${randomUUID()}`
+    ids.push(id)
+    db.prepare(
+      "INSERT INTO tasks (id, model_id, variant, label, prompt, input, state, files, project_id, created_at) VALUES (?, ?, ?, ?, ?, ?, 'generating', '[]', ?, ?)",
+    ).run(id, model.id, req.variant, model.label, req.prompt, JSON.stringify(req.input), req.projectId ?? null, Date.now())
+    void runEleven(model.id, req.prompt.trim(), input)
+      .then(async ({ bytes, ext }) => {
+        await writeFile(join(dirs.media, id + ext), bytes)
+        db.prepare("UPDATE tasks SET state = 'success', files = ?, completed_at = ? WHERE id = ?").run(JSON.stringify([id + ext]), Date.now(), id)
+      })
+      .catch((e) => db.prepare("UPDATE tasks SET state = 'fail', error = ?, completed_at = ? WHERE id = ?").run((e as Error).message, Date.now(), id))
+      .finally(() => notify())
+  }
+  notify()
+  return ids
+}
+
 export const starTask = (id: string, on: boolean) => (db.prepare('UPDATE tasks SET starred = ? WHERE id = ?').run(on ? 1 : 0, id), notify())
 
 export async function removeTask(id: string) {
@@ -72,7 +110,8 @@ async function sweep() {
   sweeping = true
   let changed = false
   try {
-    const pending = db.prepare("SELECT id, state, created_at FROM tasks WHERE state NOT IN ('success', 'fail')").all() as any[]
+    // ElevenLabs jobs finish on their own (see startEleven); only kie jobs are polled.
+    const pending = db.prepare("SELECT id, state, created_at FROM tasks WHERE state NOT IN ('success', 'fail') AND id NOT LIKE 'el-%'").all() as any[]
     for (const t of pending) {
       try {
         const info = await taskInfo(t.id)
@@ -132,6 +171,8 @@ export async function transcribe(recording: Ref): Promise<string> {
 
 export function startPoller(onChange: () => void) {
   notify = onChange
+  // An ElevenLabs reply that was still on its way when locco quit can't arrive any more.
+  db.prepare("UPDATE tasks SET state = 'fail', error = 'Stopped when locco quit. Try again.' WHERE id LIKE 'el-%' AND state NOT IN ('success', 'fail')").run()
   setInterval(sweep, 4000)
   void sweep()
 }

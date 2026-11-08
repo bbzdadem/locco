@@ -98,7 +98,8 @@ export type Task = {
 export type GenerateRequest = { modelId: string; variant: Variant; prompt: string; input: Record<string, unknown>; count: number; projectId?: string }
 
 // agentBudget: the most one agent run may spend, in dollars.
-export type Settings = { hasKey: boolean; keySource: 'saved' | 'env' | null; about: string; model: string; agentBudget: number }
+// elevenVoices: how many voices the saved ElevenLabs key can use (0 when there is no key).
+export type Settings = { hasKey: boolean; keySource: 'saved' | 'env' | null; about: string; model: string; agentBudget: number; hasEleven: boolean; elevenVoices: number }
 // Credits spent per day and model. extra = prompt improvements and chat summaries.
 export type UsageRow = { day: string; source: 'chat' | 'media' | 'extra'; model: string; credits: number }
 

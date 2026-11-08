@@ -1,7 +1,7 @@
 // npm run check: every model builds a request and gets a price, and @ mentions turn into what each model understands.
 import assert from 'node:assert/strict'
 import { buildInput, fill, resolveMentions, slotsOf } from '../src/shared/inputs'
-import { generators, MEDIA_MODELS } from '../src/shared/models'
+import { generators, isEleven, MEDIA_MODELS } from '../src/shared/models'
 import { estimate, priceLabel } from '../src/shared/prices'
 import type { Attachment, MediaKind } from '../src/shared/types'
 
@@ -15,7 +15,7 @@ for (const kind of ['image', 'video', 'audio'] as MediaKind[]) {
     const plain = buildInput(m, {}, {})
     const framed = slotsOf(m).length ? buildInput(m, {}, fill({}, slotsOf(m), [img('a.png'), img('b.png')])) : null
     const price = (input: Record<string, unknown>) => priceLabel(estimate(m.id, input, 100)) || 'no price'
-    if (!estimate(m.id, plain.input, 100)) unpriced++
+    if (!estimate(m.id, plain.input, 100) && !isEleven(m.id)) unpriced++
     console.log(
       `${kind.padEnd(5)} ${m.label.padEnd(28)} ${m.text ? price(plain.input).padEnd(34) : 'needs an image'.padEnd(34)}` +
         (framed ? ` with images: ${price(framed.input)}${framed.missing ? ' (missing a slot)' : ''}` : ''),

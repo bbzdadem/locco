@@ -311,7 +311,7 @@ function UserMessage({ message, disabled, onEdit }: { message: Message; disabled
   )
 }
 
-// Read aloud: speak a reply with ElevenLabs Turbo in the voice you last picked in Create › Audio.
+// Read aloud: speak a reply with your ElevenLabs key, in the voice you last picked for ElevenLabs Voice in Create › Audio.
 const plain = (md: string) =>
   md
     .replace(/```[\s\S]*?```/g, ' ')
@@ -336,8 +336,8 @@ function ReadAloud({ message }: { message: Message }) {
       let file = spoken.get(message.id)
       if (!file) {
         setState('loading')
-        const voice = load<Record<string, Record<string, unknown>>>('create.values', {})['tts-turbo']?.voice
-        const [id] = await api.generate({ modelId: 'tts-turbo', variant: 'text', prompt: text, input: voice ? { voice } : {}, count: 1 })
+        const saved = load<Record<string, Record<string, unknown>>>('create.values', {})['el-tts'] ?? {}
+        const [id] = await api.generate({ modelId: 'el-tts', variant: 'text', prompt: text, input: saved, count: 1 })
         for (let i = 0; i < 120 && !file; i++) {
           await new Promise((r) => setTimeout(r, 1500))
           const t = (await api.tasks()).find((x) => x.id === id)
@@ -358,7 +358,7 @@ function ReadAloud({ message }: { message: Message }) {
       setErr(errMsg(e))
     }
   }
-  const price = spoken.has(message.id) ? 'already made' : priceLabel(estimate('tts-turbo', {}, text.length))
+  const price = spoken.has(message.id) ? 'already made' : 'uses your ElevenLabs plan'
   return (
     <>
       <IconButton title={state === 'playing' ? 'Stop reading' : `Read aloud (${price})`} className="size-7" onClick={toggle} disabled={!text}>
