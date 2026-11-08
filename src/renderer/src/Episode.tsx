@@ -16,7 +16,9 @@ import { IconButton, SelectChip } from './ui'
 // Scene images at 1K: plenty for 720×1280 video, and the cheapest size.
 const SCENE_IMAGE = { aspect_ratio: '9:16', resolution: '1K' }
 const STEPS: [Step, string][] = [['script', 'Script'], ['scenes', 'Scenes'], ['voices', 'Voices'], ['video', 'Video'], ['cut', 'Cut']]
-const field = 'w-full rounded-lg border border-line bg-bg px-2.5 py-1.5 text-[13px] leading-relaxed focus:border-fg'
+// Sizes are set where a field is used: full width alone, or a fixed size next to other fields.
+const box = 'rounded-lg border border-line bg-bg px-2.5 py-1.5 text-[13px] leading-relaxed focus:border-fg'
+const field = `${box} w-full`
 const primary = 'inline-flex h-9 items-center gap-2 rounded-full bg-inverse px-4 font-medium text-on-inverse disabled:opacity-35'
 const secondary = 'inline-flex h-8 items-center gap-1.5 rounded-full border border-line px-3 text-[13px] text-muted hover:bg-raised hover:text-fg disabled:opacity-40'
 const sum = (n: number[]) => n.reduce((a, b) => a + b, 0)
@@ -117,16 +119,16 @@ function ScriptStep({ s, ep, index, cast, run, rk: k, setEp, go }: StepProps) {
             <span className="w-6 shrink-0 pt-1.5 text-right text-faint tabular-nums">{i + 1}</span>
             <div className="flex min-w-0 flex-1 flex-col gap-2">
               <div className="flex gap-2">
-                <input aria-label={`Scene ${i + 1} place`} value={sc.place} placeholder="Place and time" onChange={(e) => setScene(sc.id, (x) => void (x.place = e.target.value))} className={`${field} font-medium`} />
-                <input aria-label={`Scene ${i + 1} camera`} value={sc.camera} placeholder="Camera" onChange={(e) => setScene(sc.id, (x) => void (x.camera = e.target.value))} className={`${field} max-w-60`} />
+                <input aria-label={`Scene ${i + 1} place`} value={sc.place} placeholder="Place and time: lighthouse kitchen, night" onChange={(e) => setScene(sc.id, (x) => void (x.place = e.target.value))} className={`${field} font-medium`} />
+                <input aria-label={`Scene ${i + 1} camera`} value={sc.camera} placeholder="Camera: close-up, slow push-in" onChange={(e) => setScene(sc.id, (x) => void (x.camera = e.target.value))} className={`${field} max-w-60`} />
               </div>
-              <textarea aria-label={`Scene ${i + 1} action`} rows={2} value={sc.action} onChange={(e) => setScene(sc.id, (x) => void (x.action = e.target.value))} className={`${field} resize-none`} />
+              <textarea aria-label={`Scene ${i + 1} action`} rows={2} value={sc.action} placeholder="What we see, in one clear moment. Name characters with @: @Mochi raises the dripping keys." onChange={(e) => setScene(sc.id, (x) => void (x.action = e.target.value))} className={`${field} resize-none`} />
               {sc.lines.map((l, li) => (
                 <div key={li} className="flex items-center gap-2">
-                  <select aria-label="Speaker" value={l.speaker} onChange={(e) => setScene(sc.id, (x) => Object.assign(x.lines[li], { speaker: e.target.value, voiceTask: undefined, seconds: undefined }))} className={`${field} w-36 shrink-0`}>
+                  <select aria-label="Speaker" value={l.speaker} onChange={(e) => setScene(sc.id, (x) => Object.assign(x.lines[li], { speaker: e.target.value, voiceTask: undefined, seconds: undefined }))} className={`${box} w-36 shrink-0`}>
                     {[...new Set([...names, l.speaker])].map((n) => <option key={n} value={n}>{n}</option>)}
                   </select>
-                  <input aria-label="Line" value={l.text} onChange={(e) => setScene(sc.id, (x) => Object.assign(x.lines[li], { text: e.target.value, voiceTask: undefined, seconds: undefined }))} className={field} />
+                  <input aria-label="Line" value={l.text} placeholder="What they say, up to 14 words" onChange={(e) => setScene(sc.id, (x) => Object.assign(x.lines[li], { text: e.target.value, voiceTask: undefined, seconds: undefined }))} className={`${box} min-w-0 flex-1`} />
                   <IconButton title="Remove line" className="size-7" onClick={() => setScene(sc.id, (x) => void x.lines.splice(li, 1))}><X size={13} /></IconButton>
                 </div>
               ))}
@@ -134,7 +136,7 @@ function ScriptStep({ s, ep, index, cast, run, rk: k, setEp, go }: StepProps) {
                 {sc.lines.length < 3 && (
                   <button type="button" onClick={() => setScene(sc.id, (x) => void x.lines.push({ speaker: names[0], text: '' }))} className="text-[13px] text-muted hover:text-fg">+ Line</button>
                 )}
-                <span className="text-xs text-faint">On screen: {sc.cast.join(', ') || 'nobody named'}</span>
+                <span className="text-xs text-faint">On screen: {castOf(s, cast, sc).map((c) => c.name).join(', ') || 'nobody from the cast (name one with @)'}</span>
               </div>
             </div>
             <IconButton title="Remove scene" className="size-7" onClick={() => setEp((e) => void (e.scenes = e.scenes.filter((x) => x.id !== sc.id)))}><X size={14} /></IconButton>

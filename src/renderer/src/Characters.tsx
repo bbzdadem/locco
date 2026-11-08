@@ -9,7 +9,9 @@ import { IconButton } from './ui'
 import { VoiceTools } from './Voices'
 
 const CHAR_MODEL = 'gpt-image-2'
-const field = 'w-full rounded-lg border border-line bg-bg px-2.5 py-1.5 text-[13px] leading-relaxed focus:border-fg'
+// Sizes are set where a field is used: full width alone, or a fixed size next to other fields.
+const box = 'rounded-lg border border-line bg-bg px-2.5 py-1.5 text-[13px] leading-relaxed focus:border-fg'
+const field = `${box} w-full`
 
 export function Avatar({ c, t, size = 'size-12' }: { c?: Character; t: Tasks; size?: string }) {
   const file = fileOf(t, c?.portraitTask)
@@ -191,7 +193,7 @@ export function CharacterBuilder({ id, tasks, usedIn, onClose }: { id: string; t
 
         <Section n={4} title="Voice" done={known}>
           <div className="flex flex-wrap items-center gap-2">
-            <select aria-label="Voice" value={c.voice ?? ''} onChange={(e) => set({ voice: e.target.value || undefined })} className={`${field} w-auto max-w-80`}>
+            <select aria-label="Voice" value={c.voice ?? ''} onChange={(e) => set({ voice: e.target.value || undefined })} className={`${box} max-w-80`}>
               <option value="">{ELEVEN_VOICES.length ? 'Pick a voice' : 'Add your ElevenLabs key in Settings'}</option>
               {c.voice && !known && <option value={c.voice}>Old voice, not in your ElevenLabs voices: pick another</option>}
               {ELEVEN_VOICES.map((v) => (

@@ -132,9 +132,12 @@ export async function step(key: string, label: string, work: () => Promise<void 
 
 // --- Characters in scenes ---
 
+// Who is in a scene: the writer's pick, anyone speaking, and anyone named in the scene text (with or without @).
 export const castOf = (s: Series, cast: Character[], scene: Scene) => {
   const names = new Set([...scene.cast, ...scene.lines.map((l) => l.speaker)].map((n) => n.trim().toLowerCase()))
-  return cast.filter((c) => s.cast.includes(c.id) && names.has(c.name.trim().toLowerCase()))
+  const text = `${scene.action} ${scene.place}`.toLowerCase()
+  const named = (n: string) => !!n && new RegExp(`(^|[^\\p{L}\\p{N}])@?${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\p{L}\\p{N}])`, 'u').test(text)
+  return cast.filter((c) => s.cast.includes(c.id) && (names.has(c.name.trim().toLowerCase()) || named(c.name.trim().toLowerCase())))
 }
 // A character's references: the reference sheet (if made) and the chosen portrait.
 export const refsOf = (t: Tasks, c: Character) => [fileOf(t, c.sheetTask), fileOf(t, c.portraitTask)].filter((f): f is string => !!f)
