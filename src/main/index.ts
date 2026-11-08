@@ -4,7 +4,7 @@ import { copyFile, stat, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { Readable } from 'node:stream'
 import { chatModel, ELEVEN_VOICES, setElevenVoices } from '../shared/models'
-import type { Character, ChatEvent, EditProject, GenerateRequest, MediaKind, Project, ProjectRender, Ref, RenderRequest, Scene, SendRequest, Series, Settings } from '../shared/types'
+import type { Attachment, Character, ChatEvent, EditProject, GenerateRequest, MediaKind, Project, ProjectRender, Ref, RenderRequest, Scene, SendRequest, Series, Settings } from '../shared/types'
 import {
   cancelCall, deleteChat, deleteProject, enhancePrompt, exportMarkdown, getMessages, listChats, listProjects, moveChat, pinChat, regenerate,
   renameChat, runCall, saveProject, searchChats, send, stopChat,
@@ -178,7 +178,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('series:delete', (_e, id: string) => deleteSeries(id))
   ipcMain.handle('series:deleted', deletedSeries)
   ipcMain.handle('series:restore', (_e, id: string) => restoreSeries(id))
-  ipcMain.handle('series:write', (_e, idea: string, episodes: number, seconds: number, cast: string[]) => writeSeries(idea, episodes, seconds, cast))
+  ipcMain.handle('series:write', (_e, idea: string, episodes: number, seconds: number, cast: string[], style?: { text?: string; refs?: Attachment[] }, elements?: string[]) =>
+    writeSeries(idea, episodes, seconds, cast, style, elements))
   ipcMain.handle('series:script', (_e, s: Series, index: number) => writeScript(s, index))
   ipcMain.handle('series:revise', (_e, s: Series, index: number, scenes: Scene[], change: string) => reviseScript(s, index, scenes, change))
   ipcMain.handle('series:recap', (_e, s: Series, index: number) => writeRecap(s, index))

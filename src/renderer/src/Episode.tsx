@@ -9,8 +9,8 @@ import { Media } from './Create'
 import { episodeProject } from './Studio'
 import { api, mediaUrl } from './lib'
 import {
-  castOf, clipFor, defaultEdit, editPrompt, fileOf, getSeries, img, IMAGE_MODELS, makeAll, makeOne, model, motionPrompt, needs, ready, refsOf, type Run, scenePrompt,
-  setRun, stateOf, step, type Tasks, timing, toRender, updateSeries, VIDEO_MODELS, videoValues, voiceFor, voiceName,
+  castOf, clipFor, defaultEdit, editPrompt, elementsOf, fileOf, getSeries, img, IMAGE_MODELS, makeAll, makeOne, model, motionPrompt, needs, ready, refsOf, type Run, scenePrompt,
+  sceneRefs, setRun, stateOf, step, type Tasks, timing, toRender, updateSeries, VIDEO_MODELS, videoValues, voiceFor, voiceName,
 } from './seriesStore'
 import { IconButton, SelectChip } from './ui'
 
@@ -26,7 +26,7 @@ const sum = (n: number[]) => n.reduce((a, b) => a + b, 0)
 const fmt = (n: number) => `${n.toFixed(1)} s`
 const priceOf = (credits: number) => (credits ? priceLabel({ lo: credits, hi: credits, perSecond: false }) : '')
 
-type Props = { s: Series; ep: Episode; index: number; tasks: Tasks; cast: Character[]; run?: Run; onCharacter: (id: string) => void; onOpenEdit: (id: string) => void }
+type Props = { s: Series; ep: Episode; index: number; tasks: Tasks; cast: Character[]; things: Character[]; run?: Run; onCharacter: (id: string) => void; onOpenEdit: (id: string) => void }
 
 export function EpisodeView(props: Props) {
   const { s, ep, index, run } = props
@@ -86,7 +86,7 @@ const busy = (run?: Run) => !!run?.step
 
 // --- 1. Script: written from the story bible and earlier episodes; edit it or ask for changes, then approve ---
 
-function ScriptStep({ s, ep, index, cast, run, rk: k, setEp, go }: StepProps) {
+function ScriptStep({ s, ep, index, cast, things, run, rk: k, setEp, go }: StepProps) {
   const [change, setChange] = useState('')
   const hasImages = ep.scenes.some((sc) => sc.frameTask)
   const names = [...cast.map((c) => c.name), 'Narrator']
@@ -137,7 +137,7 @@ function ScriptStep({ s, ep, index, cast, run, rk: k, setEp, go }: StepProps) {
                 {sc.lines.length < 3 && (
                   <button type="button" onClick={() => setScene(sc.id, (x) => void x.lines.push({ speaker: names[0], text: '' }))} className="text-[13px] text-muted hover:text-fg">+ Line</button>
                 )}
-                <span className="text-xs text-faint">On screen: {castOf(s, cast, sc).map((c) => c.name).join(', ') || 'nobody from the cast (name one with @)'}</span>
+                <span className="text-xs text-faint">On screen: {[...castOf(s, cast, sc), ...elementsOf(s, things, sc)].map((c) => c.name).join(', ') || 'nobody from the cast (name one with @)'}</span>
               </div>
             </div>
             <IconButton title="Remove scene" className="size-7" onClick={() => setEp((e) => void (e.scenes = e.scenes.filter((x) => x.id !== sc.id)))}><X size={14} /></IconButton>
@@ -170,13 +170,14 @@ function ScriptStep({ s, ep, index, cast, run, rk: k, setEp, go }: StepProps) {
 
 // --- 2. Scenes: one main image per scene, drawn from the cast's references; approve each, or ask for a change ---
 
-function ScenesStep({ s, ep, tasks, cast, run, rk: k, setEp, go, selected, setSelected, onCharacter }: StepProps) {
-  const people = (sc: Scene) => castOf(s, cast, sc)
+function ScenesStep({ s, ep, tasks, cast, things, run, rk: k, setEp, go, selected, setSelected, onCharacter }: StepProps) {
+  // Characters first, then the places and things the scene names: each brings its reference images.
+  const people = (sc: Scene) => [...castOf(s, cast, sc), ...elementsOf(s, things, sc)]
   const unready = [...new Set(ep.scenes.flatMap(people))].filter((c) => !ready(tasks, c))
   const missing = ep.scenes.filter((sc) => needs(tasks, sc.frameTask))
   const im = model(s.imageModel)
   const each = estimate(im.id, buildInput(im, SCENE_IMAGE, {}).input)?.hi ?? 0
-  const refs = (sc: Scene) => people(sc).flatMap((c) => refsOf(tasks, c)).map(img)
+  const refs = (sc: Scene) => sceneRefs(s, people(sc), tasks)
   const draw = (sc: Scene) => makeOne(s.imageModel, SCENE_IMAGE, refs(sc), scenePrompt(s, sc, people(sc), tasks)).then((ids) => ids[0])
   const setScene = (id: string, fn: (sc: Scene) => void) => setEp((e) => fn(e.scenes.find((x) => x.id === id)!))
   const drawAll = () => step(k, 'Drawing scenes…', () => makeAll(k, `Drawing ${missing.length} scenes…`, 'scene images', missing, draw,
@@ -189,7 +190,7 @@ function ScenesStep({ s, ep, tasks, cast, run, rk: k, setEp, go, selected, setSe
     <>
       {unready.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-xl bg-raised px-3 py-2.5 text-[13px]">
-          <TriangleAlert size={14} className="text-muted" /> Finish these characters first (pick a portrait) so they look the same in every scene:
+          <TriangleAlert size={14} className="text-muted" /> Finish these first (pick a portrait or image) so they look the same in every scene:
           {unready.map((c) => (
             <button key={c.id} type="button" onClick={() => onCharacter(c.id)} className="inline-flex items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 font-medium hover:bg-line">
               <Avatar c={c} t={tasks} size="size-5" /> {c.name}

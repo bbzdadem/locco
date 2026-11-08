@@ -34,8 +34,8 @@ const api = {
   deleteSeries: (id: string): Promise<void> => ipcRenderer.invoke('series:delete', id),
   deletedSeries: (): Promise<{ series: Series; deletedAt: number }[]> => ipcRenderer.invoke('series:deleted'),
   restoreSeries: (id: string): Promise<void> => ipcRenderer.invoke('series:restore', id),
-  writeSeries: (idea: string, episodes: number, seconds: number, cast: string[]): Promise<{ series: Series; created: Character[] }> =>
-    ipcRenderer.invoke('series:write', idea, episodes, seconds, cast),
+  writeSeries: (idea: string, episodes: number, seconds: number, cast: string[], style?: { text?: string; refs?: Attachment[] }, elements?: string[]): Promise<{ series: Series; created: Character[] }> =>
+    ipcRenderer.invoke('series:write', idea, episodes, seconds, cast, style, elements),
   writeScript: (s: Series, index: number): Promise<Scene[]> => ipcRenderer.invoke('series:script', s, index),
   reviseScript: (s: Series, index: number, scenes: Scene[], change: string): Promise<Scene[]> => ipcRenderer.invoke('series:revise', s, index, scenes, change),
   writeRecap: (s: Series, index: number): Promise<{ recap: string; continuity: string }> => ipcRenderer.invoke('series:recap', s, index),

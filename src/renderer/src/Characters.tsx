@@ -1,4 +1,4 @@
-import { Check, ImagePlus, LoaderCircle, Pause, Plus, RotateCcw, Trash2, UserRound, Volume2, X } from 'lucide-react'
+import { Box, Check, ImagePlus, LoaderCircle, Pause, Plus, RotateCcw, Trash2, UserRound, Volume2, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { ELEVEN_VOICES } from '../../shared/models'
 import { estimate, priceLabel } from '../../shared/prices'
@@ -9,6 +9,7 @@ import { IconButton } from './ui'
 import { VoiceTools } from './Voices'
 
 const CHAR_MODEL = 'gpt-image-2'
+const CATEGORY: Record<NonNullable<Character['category']>, string> = { place: 'Place', prop: 'Prop', creature: 'Creature', other: 'Other' }
 // Sizes are set where a field is used: full width alone, or a fixed size next to other fields.
 const box = 'rounded-lg border border-line bg-bg px-2.5 py-1.5 text-[13px] leading-relaxed focus:border-fg'
 const field = `${box} w-full`
@@ -16,28 +17,30 @@ const field = `${box} w-full`
 export function Avatar({ c, t, size = 'size-12' }: { c?: Character; t: Tasks; size?: string }) {
   const file = fileOf(t, c?.portraitTask)
   return (
-    <span className={`${size} flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-raised text-muted`}>
-      {file ? <img src={mediaUrl({ kind: 'media', file })} alt={c?.name} className="size-full object-cover" /> : <UserRound size={18} />}
+    <span className={`${size} flex shrink-0 items-center justify-center overflow-hidden bg-raised text-muted ${c?.kind ? 'rounded-lg' : 'rounded-full'}`}>
+      {file ? <img src={mediaUrl({ kind: 'media', file })} alt={c?.name} className="size-full object-cover" /> : c?.kind ? <Box size={16} /> : <UserRound size={18} />}
     </span>
   )
 }
 
-// Every character you build is kept here and can be cast in any series.
-export function CharacterLibrary({ characters, series, tasks, onOpen }: { characters: Character[]; series: Series[]; tasks: Tasks; onOpen: (id: string) => void }) {
+// Every character (or element: a recurring place, prop or creature) you build is kept here and can be used in any series.
+export function CharacterLibrary({ characters, series, tasks, onOpen, elements }: { characters: Character[]; series: Series[]; tasks: Tasks; onOpen: (id: string) => void; elements?: boolean }) {
   async function create() {
-    const c: Character = { id: crypto.randomUUID(), name: '', look: '', personality: '', createdAt: Date.now() }
+    const c: Character = { id: crypto.randomUUID(), name: '', look: '', personality: '', createdAt: Date.now(), ...(elements && { kind: 'element' as const, category: 'place' as const }) }
     await saveChar(c)
     onOpen(c.id)
   }
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-4 px-6 pt-6 pb-16">
-      <p className="text-muted">Characters are saved here and keep the same face, clothes and voice in every series. Mention one in a scene as @Name.</p>
+      <p className="text-muted">{elements
+        ? 'Elements are the places, props and creatures that come back across episodes: the lighthouse, the brass keys, the seagull. Saved here, they look the same in every scene that names them.'
+        : 'Characters are saved here and keep the same face, clothes and voice in every series. Mention one in a scene as @Name.'}</p>
       <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3">
         <button type="button" onClick={create} className="flex aspect-[3/4] flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-line text-muted hover:border-fg hover:text-fg">
-          <Plus size={22} /> New character
+          <Plus size={22} /> {elements ? 'New element' : 'New character'}
         </button>
         {characters.map((c) => {
-          const used = series.filter((s) => s.cast.includes(c.id)).length
+          const used = series.filter((s) => s.cast.includes(c.id) || s.elements?.includes(c.id)).length
           const file = fileOf(tasks, c.portraitTask)
           return (
             <button key={c.id} type="button" onClick={() => onOpen(c.id)} className="flex flex-col overflow-hidden rounded-2xl border border-line bg-surface text-left hover:border-faint">
@@ -47,10 +50,10 @@ export function CharacterLibrary({ characters, series, tasks, onOpen }: { charac
               <span className="flex flex-col px-3 py-2">
                 <span className="truncate font-medium">{c.name || 'Unnamed'}</span>
                 <span className="truncate text-xs text-muted">
-                  {voiceName(c.voice) ? `Voice: ${voiceName(c.voice)}` : 'No voice yet'}
+                  {c.kind ? CATEGORY[c.category ?? 'other'] : voiceName(c.voice) ? `Voice: ${voiceName(c.voice)}` : 'No voice yet'}
                   {used > 0 && ` · ${used} series`}
                 </span>
-                {!c.portraitTask && <span className="text-xs text-faint">Portrait not picked yet</span>}
+                {!c.portraitTask && <span className="text-xs text-faint">{c.kind ? 'Image' : 'Portrait'} not picked yet</span>}
               </span>
             </button>
           )
@@ -69,12 +72,17 @@ export function CharacterBuilder({ id, tasks, usedIn, onClose }: { id: string; t
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [, redraw] = useState(0)
   const picker = useRef<HTMLInputElement>(null)
+  const closeRef = useRef(onClose)
   useEffect(() => {
-    const h = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    const h = (e: KeyboardEvent) => e.key === 'Escape' && closeRef.current()
     addEventListener('keydown', h)
     return () => removeEventListener('keydown', h)
   }, [onClose])
   if (!c) return null
+  // Closing a brand-new, still blank character or element throws it away instead of leaving an "Unnamed" behind.
+  const blank = !c.name.trim() && !c.look.trim() && !c.photo && !c.options?.length && !c.portraitTask
+  const close = () => (blank ? void removeChar(c.id).then(onClose) : onClose())
+  closeRef.current = close
   const set = (patch: Partial<Character>) => void updateChar(id, (x) => Object.assign(x, patch))
   const act = async (what: string, fn: () => Promise<void>) => {
     setBusy(what)
@@ -93,11 +101,13 @@ export function CharacterBuilder({ id, tasks, usedIn, onClose }: { id: string; t
   const canPortraits = !!c.name.trim() && (!!c.look.trim() || !!c.photo)
   // A voice from before the ElevenLabs switch (kie's list) may not exist in the account; it doesn't count until replaced.
   const known = ELEVEN_VOICES.some((v) => v.id === c.voice)
+  const el = c.kind === 'element'
+  const shape = el ? (c.category === 'place' ? '9:16' : '1:1') : '3:4'
   const each = priceLabel(estimate(CHAR_MODEL, { resolution: '1K' }))
 
   const makeOptions = () => act('options', async () => {
-    const ids = await makeOne(CHAR_MODEL, { aspect_ratio: '3:4', resolution: '1K' }, c.photo ? [c.photo] : [],
-      `${portraitPrompt(c)}${c.photo ? ' Base the person on the reference photo.' : ''}`, 3)
+    const ids = await makeOne(CHAR_MODEL, { aspect_ratio: shape, resolution: '1K' }, c.photo ? [c.photo] : [],
+      `${portraitPrompt(c)}${c.photo ? ` Base the ${el ? c.category === 'place' ? 'place' : 'object' : 'person'} on the reference photo.` : ''}`, 3)
     set({ options: ids, portraitTask: undefined, sheetTask: undefined })
   })
   const pick = (taskId: string) => act('sheet', async () => {
@@ -111,15 +121,15 @@ export function CharacterBuilder({ id, tasks, usedIn, onClose }: { id: string; t
   })
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6 backdrop-blur-sm" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6 backdrop-blur-sm" onMouseDown={close}>
       <div onMouseDown={(e) => e.stopPropagation()} className="flex max-h-full w-full max-w-[720px] flex-col gap-6 overflow-y-auto rounded-2xl border border-line bg-surface p-6 shadow-2xl">
         <div className="flex items-center gap-3">
           <Avatar c={c} t={tasks} />
           <div className="min-w-0 flex-1">
-            <h2 className="truncate text-lg font-semibold">{c.name || 'New character'}</h2>
-            <p className="text-xs text-muted">Saved to Characters as you go{usedIn.length > 0 && ` · in ${usedIn.join(', ')}`}</p>
+            <h2 className="truncate text-lg font-semibold">{c.name || (el ? 'New element' : 'New character')}</h2>
+            <p className="text-xs text-muted">Saved to {el ? 'Elements' : 'Characters'} as you go{usedIn.length > 0 && ` · in ${usedIn.join(', ')}`}</p>
           </div>
-          <IconButton title="Close" onClick={onClose}>
+          <IconButton title="Close" onClick={close}>
             <X size={18} />
           </IconButton>
         </div>
@@ -127,10 +137,20 @@ export function CharacterBuilder({ id, tasks, usedIn, onClose }: { id: string; t
         <Section n={1} title="Describe" done={canPortraits}>
           <div className="grid grid-cols-[1fr_auto] gap-3">
             <div className="flex flex-col gap-2">
-              <input id="char-name" aria-label="Name" value={c.name} placeholder="Name" autoFocus={!c.name} onChange={(e) => set({ name: e.target.value })} className={field} />
+              <input id="char-name" aria-label="Name" value={c.name} placeholder={el ? 'Name, as scenes will mention it: The Lighthouse' : 'Name'} autoFocus={!c.name} onChange={(e) => set({ name: e.target.value })} className={field} />
+              {el && (
+                <div className="flex gap-1">
+                  {(Object.keys(CATEGORY) as NonNullable<Character['category']>[]).map((k) => (
+                    <button key={k} type="button" onClick={() => set({ category: k })}
+                      className={`h-7 rounded-full border px-2.5 text-xs ${c.category === k ? 'border-fg bg-raised text-fg' : 'border-line text-muted hover:bg-raised'}`}>{CATEGORY[k]}</button>
+                  ))}
+                </div>
+              )}
               <textarea aria-label="Look" rows={3} value={c.look} onChange={(e) => set({ look: e.target.value })} className={`${field} resize-none`}
-                placeholder="Look, precisely: age, face, skin, hair, build, clothes. A small grey cat with blue-grey fur, white chin, green eyes, mustard raincoat." />
-              <input aria-label="Personality" value={c.personality} placeholder="Personality: calm, deadpan, secretly kind" onChange={(e) => set({ personality: e.target.value })} className={field} />
+                placeholder={el
+                  ? 'Look, precisely: shape, materials, colours, size, details. A white stone lighthouse with a red lantern room, rusted iron balcony, worn steps to the sea.'
+                  : 'Look, precisely: age, face, skin, hair, build, clothes. A small grey cat with blue-grey fur, white chin, green eyes, mustard raincoat.'} />
+              {!el && <input aria-label="Personality" value={c.personality} placeholder="Personality: calm, deadpan, secretly kind" onChange={(e) => set({ personality: e.target.value })} className={field} />}
             </div>
             <div className="flex w-28 flex-col items-center gap-1.5">
               <button type="button" onClick={() => picker.current?.click()} title="Start from a photo (optional)"
@@ -147,9 +167,9 @@ export function CharacterBuilder({ id, tasks, usedIn, onClose }: { id: string; t
           </div>
         </Section>
 
-        <Section n={2} title="Pick a portrait" done={!!c.portraitTask} locked={!canPortraits} hint="Write a name and a look first.">
+        <Section n={2} title={el ? 'Pick an image' : 'Pick a portrait'} done={!!c.portraitTask} locked={!canPortraits} hint="Write a name and a look first.">
           {!options.length && portrait && (
-            <img src={mediaUrl({ kind: 'media', file: portrait })} alt={`${c.name}'s portrait`} className="aspect-[3/4] w-40 rounded-xl object-cover ring-2 ring-fg" />
+            <img src={mediaUrl({ kind: 'media', file: portrait })} alt={`${c.name}'s portrait`} style={{ aspectRatio: shape.replace(':', ' / ') }} className="w-40 rounded-xl object-cover ring-2 ring-fg" />
           )}
           {options.length ? (
             <div className="grid grid-cols-3 gap-2">
@@ -158,7 +178,8 @@ export function CharacterBuilder({ id, tasks, usedIn, onClose }: { id: string; t
                 const st = stateOf(tasks, o)
                 return (
                   <button key={o} type="button" disabled={!file || !!busy} onClick={() => pick(o)}
-                    className={`relative aspect-[3/4] overflow-hidden rounded-xl bg-raised ${c.portraitTask === o ? 'ring-2 ring-fg' : 'hover:opacity-90'}`}>
+                    style={{ aspectRatio: shape.replace(':', ' / ') }}
+                    className={`relative overflow-hidden rounded-xl bg-raised ${c.portraitTask === o ? 'ring-2 ring-fg' : 'hover:opacity-90'}`}>
                     {file ? <img src={mediaUrl({ kind: 'media', file })} alt="Portrait option" className="size-full object-cover" />
                       : <span className="flex size-full items-center justify-center text-[13px] text-muted">{st === 'fail' ? tasks[o]?.error : <LoaderCircle size={18} className="animate-spin" />}</span>}
                     {c.portraitTask === o && <span className="absolute top-2 right-2 flex size-6 items-center justify-center rounded-full bg-inverse text-on-inverse"><Check size={14} /></span>}
@@ -170,11 +191,11 @@ export function CharacterBuilder({ id, tasks, usedIn, onClose }: { id: string; t
           <button type="button" disabled={!canPortraits || !!busy} onClick={makeOptions}
             className="inline-flex h-9 w-fit items-center gap-2 rounded-full bg-inverse px-4 font-medium text-on-inverse disabled:opacity-35">
             {busy === 'options' ? <LoaderCircle size={15} className="animate-spin" /> : options.length ? <RotateCcw size={15} /> : <Plus size={15} />}
-            {options.length ? 'Three new options' : 'Make 3 portraits'} <span className="font-normal opacity-70">({each} each)</span>
+            {options.length ? 'Three new options' : el ? 'Make 3 images' : 'Make 3 portraits'} <span className="font-normal opacity-70">({each} each)</span>
           </button>
         </Section>
 
-        <Section n={3} title="Reference sheet" done={!!sheet} locked={!c.portraitTask} hint="Pick a portrait first; the sheet is made from it.">
+        <Section n={3} title={el ? 'More angles' : 'Reference sheet'} done={!!sheet} locked={!c.portraitTask} hint={`Pick ${el ? 'an image' : 'a portrait'} first; ${el ? 'the angles are' : 'the sheet is'} made from it.`}>
           {c.sheetTask && (
             <div className="relative aspect-video overflow-hidden rounded-xl bg-raised">
               {sheet ? <img src={mediaUrl({ kind: 'media', file: sheet })} alt="Reference sheet" className="size-full object-contain" />
@@ -188,10 +209,10 @@ export function CharacterBuilder({ id, tasks, usedIn, onClose }: { id: string; t
               <RotateCcw size={13} /> {c.sheetTask ? 'Redo sheet' : 'Make reference sheet'}
             </button>
           )}
-          <p className="text-xs text-faint">Scenes are drawn from the sheet and the portrait, so the face and clothes stay the same everywhere.</p>
+          <p className="text-xs text-faint">{el ? 'Scenes that name it are drawn from these images, so it looks the same every time.' : 'Scenes are drawn from the sheet and the portrait, so the face and clothes stay the same everywhere.'}</p>
         </Section>
 
-        <Section n={4} title="Voice" done={known}>
+        {!el && <Section n={4} title="Voice" done={known}>
           <div className="flex flex-wrap items-center gap-2">
             <select aria-label="Voice" value={c.voice ?? ''} onChange={(e) => set({ voice: e.target.value || undefined })} className={`${box} max-w-80`}>
               <option value="">{ELEVEN_VOICES.length ? 'Pick a voice' : 'Add your ElevenLabs key in Settings'}</option>
@@ -205,22 +226,22 @@ export function CharacterBuilder({ id, tasks, usedIn, onClose }: { id: string; t
             <HearIt c={c} />
             <VoiceTools onChange={(added) => (added ? set({ voice: added }) : redraw((n) => n + 1))} />
           </div>
-        </Section>
+        </Section>}
 
         {error && <p className="text-[13px] text-danger">{error}</p>}
         <div className="flex items-center gap-2 border-t border-line pt-4 text-[13px]">
           {confirmDelete ? (
             <>
-              <span className="min-w-0 flex-1">Delete {c.name || 'this character'}? {usedIn.length ? 'They leave the cast of every series.' : ''} Their images stay in Create.</span>
+              <span className="min-w-0 flex-1">Delete {c.name || (el ? 'this element' : 'this character')}? {usedIn.length ? (el ? 'It leaves every series.' : 'They leave the cast of every series.') : ''} {el ? 'Its' : 'Their'} images stay in Create.</span>
               <button type="button" onClick={() => removeChar(c.id).then(onClose)} className="h-8 shrink-0 rounded-full bg-inverse px-3 font-medium text-on-inverse">Delete</button>
               <button type="button" onClick={() => setConfirmDelete(false)} className="h-8 shrink-0 rounded-full px-3 hover:bg-raised">Keep</button>
             </>
           ) : (
             <>
-              <IconButton title="Delete character" onClick={() => setConfirmDelete(true)}>
+              <IconButton title={el ? 'Delete element' : 'Delete character'} onClick={() => setConfirmDelete(true)}>
                 <Trash2 size={15} />
               </IconButton>
-              <button type="button" onClick={onClose} className="ml-auto h-9 rounded-full bg-inverse px-5 font-medium text-on-inverse">Done</button>
+              <button type="button" onClick={close} className="ml-auto h-9 rounded-full bg-inverse px-5 font-medium text-on-inverse">Done</button>
             </>
           )}
         </div>

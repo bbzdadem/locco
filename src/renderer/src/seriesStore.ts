@@ -132,31 +132,65 @@ export async function step(key: string, label: string, work: () => Promise<void 
 
 // --- Characters in scenes ---
 
+// Whether a name appears in a scene's text, with or without @ (a longer word containing it doesn't count).
+const named = (n: string, text: string) =>
+  !!n && new RegExp(`(^|[^\\p{L}\\p{N}])@?${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\p{L}\\p{N}])`, 'u').test(text)
 // Who is in a scene: the writer's pick, anyone speaking, and anyone named in the scene text (with or without @).
 export const castOf = (s: Series, cast: Character[], scene: Scene) => {
   const names = new Set([...scene.cast, ...scene.lines.map((l) => l.speaker)].map((n) => n.trim().toLowerCase()))
   const text = `${scene.action} ${scene.place}`.toLowerCase()
-  const named = (n: string) => !!n && new RegExp(`(^|[^\\p{L}\\p{N}])@?${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\p{L}\\p{N}])`, 'u').test(text)
-  return cast.filter((c) => s.cast.includes(c.id) && (names.has(c.name.trim().toLowerCase()) || named(c.name.trim().toLowerCase())))
+  return cast.filter((c) => s.cast.includes(c.id) && (names.has(c.name.trim().toLowerCase()) || named(c.name.trim().toLowerCase(), text)))
+}
+// The series' places and things that a scene names (in its place, action or camera).
+export const elementsOf = (s: Series, all: Character[], scene: Scene) => {
+  const text = `${scene.place} ${scene.action} ${scene.camera}`.toLowerCase()
+  return all.filter((e) => (s.elements ?? []).includes(e.id) && named(e.name.trim().toLowerCase(), text))
 }
 // A character's references: the reference sheet (if made) and the chosen portrait.
 export const refsOf = (t: Tasks, c: Character) => [fileOf(t, c.sheetTask), fileOf(t, c.portraitTask)].filter((f): f is string => !!f)
 export const ready = (t: Tasks, c: Character) => !!fileOf(t, c.portraitTask)
 
 export const portraitPrompt = (c: Character, style = '') =>
+  c.kind === 'element'
+    ? c.category === 'place'
+      ? `Reference image of the place ${c.name}: ${c.look}. ${style} Wide establishing view, vertical 9:16, no people, no text.`
+      : `Reference image of ${c.name}: ${c.look}. ${style} Shown whole and centred on a plain light grey background, even studio light, no text.`
+    :
   `Character portrait for a short film: ${c.name}, ${c.look}. ${style} Head and shoulders, facing the camera, neutral expression, plain light grey background, sharp focus, no text.`
 export const sheetPrompt = (c: Character) =>
+  c.kind === 'element'
+    ? c.category === 'place'
+      ? `Three views of exactly this place (${c.name}) side by side: wide establishing, medium, close detail. Same layout, materials, colours and light as the reference image. No people, no text.`
+      : `Reference sheet of exactly this ${c.category === 'creature' ? 'creature' : 'object'} (${c.name}): front, side, back and three-quarter views side by side on a plain light grey background. Same shape, materials and colours as the reference image. No text.`
+    :
   `Character reference sheet of exactly this person (${c.name}): the same face, hair, skin and clothes as the reference image. Four views side by side on a plain light grey background: front, three-quarter, side profile, full body standing. Even studio light, no text, no labels.`
+// The images sent with a scene: each character's references, then the series' style images.
+export const sceneRefs = (s: Series, people: Character[], t: Tasks) => [...people.flatMap((c) => refsOf(t, c)).map(img), ...(s.styleRefs ?? []).slice(0, 3)]
+// people here can include elements: characters first, then places and things (each with its own references).
+
+// Joins prompt pieces as sentences: empty parts dropped, exactly one full stop after each.
+const sentences = (...parts: (string | false | undefined)[]) =>
+  parts.map((p) => (p || '').trim().replace(/[.\s]+$/, '')).filter(Boolean).map((p) => `${p}.`).join(' ')
+
 export function scenePrompt(s: Series, scene: Scene, people: Character[], t: Tasks) {
   let n = 0
-  const refs = people.map((c) => `${c.name} = image${refsOf(t, c).length > 1 ? `s ${++n} and ${++n}` : ` ${++n}`}`).join('; ')
+  const label = (c: Character) => `${c.name} = image${refsOf(t, c).length > 1 ? `s ${++n} and ${++n}` : ` ${++n}`}`
+  const refs = people.filter((c) => !c.kind).map(label).join('; ')
+  const things = people.filter((c) => c.kind).map(label).join('; ')
+  const styles = (s.styleRefs ?? []).slice(0, 3).length
   const said = scene.lines.map((l) => `${l.speaker} is speaking`).join(', ')
-  return [
-    `${s.style}`,
-    `${scene.place}. ${scene.action}. Camera: ${scene.camera}.${said ? ` ${said}.` : ''}`,
-    'A vertical 9:16 still from a short film, cinematic, no text, no captions, no subtitles.',
-    refs && `Keep each character exactly as in their reference images (${refs}): same face, hair and clothes.`,
-  ].filter(Boolean).join(' ')
+  return sentences(
+    s.style,
+    scene.place,
+    scene.action,
+    scene.camera && `Camera: ${scene.camera}`,
+    said,
+    'A vertical 9:16 still from a short film, cinematic, no text, no captions, no subtitles',
+    refs && `Keep each character exactly as in their reference images (${refs}): same face, hair and clothes`,
+    things && `Keep each place and thing exactly as in its reference images (${things}): same shape, materials and colours`,
+    styles > 1 && `Images ${n + 1}–${n + styles} are style references: match their art style, rendering, palette and lighting, not their content`,
+    styles === 1 && `Image ${n + 1} is a style reference: match its art style, rendering, palette and lighting, not its content`,
+  )
 }
 export const editPrompt = (change: string) =>
   `Edit the first image: ${change}. Keep everything else the same: characters, faces, clothes, framing, light and style. Vertical 9:16, no text.`
@@ -198,3 +232,19 @@ export const voiceFor = (cast: Character[], speaker: string) => {
   return ELEVEN_VOICES.some((x) => x.id === v) ? v : undefined // an old kie voice id falls back to the default voice
 }
 export const voiceName = (id?: string) => ELEVEN_VOICES.find((v) => v.id === id)?.name.split(' - ')[0]
+
+// Looks to start a series from. Picking one sets the series' "look"; style images can go on top.
+export const STYLE_PRESETS: { id: string; name: string; text: string }[] = [
+  { id: 'cinematic', name: 'Cinematic', text: 'Photoreal cinematic film still: natural light, shallow depth of field, 35mm lens, subtle film grain.' },
+  { id: '3d', name: '3D animated', text: 'Polished 3D animated feature look: soft global illumination, rounded appealing characters, rich colour, gentle subsurface skin.' },
+  { id: 'anime', name: 'Anime', text: 'Hand-drawn anime look: clean line art, cel shading, painted backgrounds, expressive eyes, vivid sky gradients.' },
+  { id: 'watercolour', name: 'Watercolour storybook', text: 'Soft watercolour storybook illustration: paper texture, gentle pastel palette, hand-painted edges, cosy light.' },
+  { id: 'clay', name: 'Claymation', text: 'Stop-motion clay animation: sculpted plasticine characters with fingerprints in the clay, miniature handmade sets, warm practical light.' },
+  { id: 'comic', name: 'Comic book', text: 'Bold comic-book art: thick ink outlines, halftone shading, flat saturated colours, dramatic angles.' },
+  { id: 'noir', name: 'Film noir', text: 'Black-and-white film noir: hard shadows, venetian-blind light, high contrast, smoky atmosphere.' },
+  { id: 'retro', name: 'Retro 80s', text: '1980s VHS look: neon colours, soft bloom, light scanlines, synthwave palette, slight tape wobble.' },
+  { id: 'documentary', name: 'Documentary', text: 'Handheld documentary realism: available light, natural colours, slight grain, candid framing.' },
+  { id: 'papercut', name: 'Paper cut-out', text: 'Layered paper cut-out animation: textured craft paper, soft drop shadows, diorama depth, handmade feel.' },
+  { id: 'oil', name: 'Oil painting', text: 'Rich oil painting: visible brush strokes, warm chiaroscuro light, classical composition.' },
+  { id: 'pixel', name: 'Pixel art', text: 'Detailed 16-bit pixel art: limited palette, crisp pixels, game-like staging.' },
+]

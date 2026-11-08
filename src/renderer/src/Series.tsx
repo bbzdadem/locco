@@ -1,10 +1,10 @@
-import { ArrowLeft, Check, Film, LoaderCircle, Plus, Trash2, Undo2, X } from 'lucide-react'
-import { useEffect, useState, useSyncExternalStore } from 'react'
-import type { Character, Episode, Series } from '../../shared/types'
+import { ArrowLeft, Check, Film, ImagePlus, LoaderCircle, Plus, Trash2, Undo2, X } from 'lucide-react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import type { Attachment, Character, Episode, Series } from '../../shared/types'
 import { Avatar, CharacterBuilder, CharacterLibrary } from './Characters'
 import { EpisodeView } from './Episode'
-import { api, errMsg } from './lib'
-import { getSnapshot, loadAll, ready, type Run, saveChar, subscribe, type Tasks, updateSeries, voiceName } from './seriesStore'
+import { ACCEPT_IMAGES, api, errMsg, mediaUrl, toAttachments } from './lib'
+import { getSnapshot, loadAll, ready, type Run, saveChar, STYLE_PRESETS, subscribe, type Tasks, updateSeries, voiceName } from './seriesStore'
 import { Header, IconButton, SelectChip } from './ui'
 
 type HeaderProps = { collapsed: boolean; onExpand: () => void }
@@ -12,7 +12,7 @@ const field = 'w-full rounded-lg border border-line bg-bg px-2.5 py-1.5 text-[13
 
 export function SeriesView({ header, onChanged, onOpenEdit }: { header: HeaderProps; onChanged: () => void; onOpenEdit: (id: string) => void }) {
   const { series: list, characters, runs } = useSyncExternalStore(subscribe, getSnapshot)
-  const [tab, setTab] = useState<'series' | 'characters'>('series')
+  const [tab, setTab] = useState<'series' | 'characters' | 'elements'>('series')
   const [openId, setOpenId] = useState<string | null>(null)
   const [charId, setCharId] = useState<string | null>(null)
   const [justDeleted, setJustDeleted] = useState<Series | null>(null)
@@ -24,8 +24,10 @@ export function SeriesView({ header, onChanged, onOpenEdit }: { header: HeaderPr
     return api.onTasks(() => (refresh(), onChanged()))
   }, [onChanged])
   const open = list.find((s) => s.id === openId)
+  const people = characters.filter((c) => !c.kind)
+  const things = characters.filter((c) => c.kind === 'element')
   const builder = charId && (
-    <CharacterBuilder id={charId} tasks={tasks} usedIn={list.filter((s) => s.cast.includes(charId)).map((s) => s.title)} onClose={() => setCharId(null)} />
+    <CharacterBuilder id={charId} tasks={tasks} usedIn={list.filter((s) => s.cast.includes(charId) || s.elements?.includes(charId)).map((s) => s.title)} onClose={() => setCharId(null)} />
   )
 
   if (open)
@@ -41,10 +43,10 @@ export function SeriesView({ header, onChanged, onOpenEdit }: { header: HeaderPr
       <Header {...header}>
         <span className="font-medium">Series</span>
         <div className="absolute left-1/2 flex -translate-x-1/2 gap-1 rounded-full bg-raised p-1 text-sm">
-          {(['series', 'characters'] as const).map((k) => (
+          {(['series', 'characters', 'elements'] as const).map((k) => (
             <button key={k} type="button" aria-pressed={tab === k} onClick={() => setTab(k)}
               className={`h-9 rounded-full px-6 font-medium transition-colors ${tab === k ? 'bg-surface text-fg shadow-sm' : 'text-muted hover:text-fg'}`}>
-              {k === 'series' ? 'Series' : `Characters${characters.length ? ` · ${characters.length}` : ''}`}
+              {k === 'series' ? 'Series' : k === 'characters' ? `Characters${people.length ? ` · ${people.length}` : ''}` : `Elements${things.length ? ` · ${things.length}` : ''}`}
             </button>
           ))}
         </div>
@@ -53,8 +55,10 @@ export function SeriesView({ header, onChanged, onOpenEdit }: { header: HeaderPr
         {tab === 'series' ? (
           <SeriesHome list={list} characters={characters} tasks={tasks} justDeleted={justDeleted} onUndone={() => setJustDeleted(null)}
             onOpen={(id) => (setJustDeleted(null), setOpenId(id))} onCharacter={setCharId} />
+        ) : tab === 'characters' ? (
+          <CharacterLibrary characters={people} series={list} tasks={tasks} onOpen={setCharId} />
         ) : (
-          <CharacterLibrary characters={characters} series={list} tasks={tasks} onOpen={setCharId} />
+          <CharacterLibrary elements characters={things} series={list} tasks={tasks} onOpen={setCharId} />
         )}
       </div>
       {builder}
@@ -62,8 +66,8 @@ export function SeriesView({ header, onChanged, onOpenEdit }: { header: HeaderPr
   )
 }
 
-async function newCharacter(then: (id: string) => void) {
-  const c: Character = { id: crypto.randomUUID(), name: '', look: '', personality: '', createdAt: Date.now() }
+async function newCharacter(then: (id: string) => void, element = false) {
+  const c: Character = { id: crypto.randomUUID(), name: '', look: '', personality: '', createdAt: Date.now(), ...(element && { kind: 'element' as const, category: 'place' as const }) }
   await saveChar(c)
   then(c.id)
 }
@@ -81,6 +85,9 @@ function SeriesHome({ list, characters, tasks, justDeleted, onUndone, onOpen, on
   const [episodes, setEpisodes] = useState('3')
   const [seconds, setSeconds] = useState('45')
   const [cast, setCast] = useState<string[]>([])
+  const [elementIds, setElementIds] = useState<string[]>([])
+  const [preset, setPreset] = useState<string>()
+  const [styleRefs, setStyleRefs] = useState<Attachment[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [deleted, setDeleted] = useState<{ series: Series; deletedAt: number }[]>([])
@@ -91,8 +98,8 @@ function SeriesHome({ list, characters, tasks, justDeleted, onUndone, onOpen, on
     setBusy(true)
     setError('')
     try {
-      const { series } = await api.writeSeries(idea.trim(), Number(episodes), Number(seconds), cast)
-      await api.saveSeries(series)
+      const { series } = await api.writeSeries(idea.trim(), Number(episodes), Number(seconds), cast, { text: STYLE_PRESETS.find((x) => x.id === preset)?.text, refs: styleRefs }, elementIds)
+      await api.saveSeries({ ...series, stylePreset: preset })
       await loadAll()
       onOpen(series.id)
     } catch (e) {
@@ -117,7 +124,7 @@ function SeriesHome({ list, characters, tasks, justDeleted, onUndone, onOpen, on
         <div className="flex flex-col gap-1.5 px-1">
           <span className="text-xs text-muted">Cast from your Characters (optional; anyone else the story needs is created and saved to Characters)</span>
           <div className="flex flex-wrap gap-1.5">
-            {characters.map((c) => {
+            {characters.filter((c) => !c.kind).map((c) => {
               const on = cast.includes(c.id)
               return (
                 <button key={c.id} type="button" aria-pressed={on} onClick={() => setCast(on ? cast.filter((x) => x !== c.id) : [...cast, c.id])}
@@ -131,6 +138,28 @@ function SeriesHome({ list, characters, tasks, justDeleted, onUndone, onOpen, on
               <Plus size={13} /> New character
             </button>
           </div>
+        </div>
+        <div className="flex flex-col gap-1.5 px-1">
+          <span className="text-xs text-muted">Elements: recurring places and things (optional; the writer adds up to 3 the story needs, saved to Elements)</span>
+          <div className="flex flex-wrap gap-1.5">
+            {characters.filter((c) => c.kind === 'element').map((c) => {
+              const on = elementIds.includes(c.id)
+              return (
+                <button key={c.id} type="button" aria-pressed={on} onClick={() => setElementIds(on ? elementIds.filter((x) => x !== c.id) : [...elementIds, c.id])}
+                  className={`inline-flex h-8 items-center gap-1.5 rounded-full border pr-3 pl-1 text-[13px] ${on ? 'border-fg bg-raised' : 'border-line text-muted hover:bg-raised'}`}>
+                  <Avatar c={c} t={tasks} size="size-6" /> {c.name || 'Unnamed'} {on && <Check size={12} />}
+                </button>
+              )
+            })}
+            <button type="button" onClick={() => newCharacter((id) => (setElementIds((x) => [...x, id]), onCharacter(id)), true)}
+              className="inline-flex h-8 items-center gap-1 rounded-full border border-dashed border-line px-3 text-[13px] text-muted hover:text-fg">
+              <Plus size={13} /> New element
+            </button>
+          </div>
+        </div>
+        <div className="flex flex-col gap-1.5 px-1">
+          <span className="text-xs text-muted">Style (optional): pick a look, add up to 3 images to match, or both</span>
+          <StylePicker preset={preset} refs={styleRefs} onPreset={setPreset} onRefs={setStyleRefs} />
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <SelectChip title="Episodes" label={`${episodes} episodes`} value={episodes} onChange={setEpisodes} options={['3', '5', '8', '10'].map((n) => ({ value: n, label: `${n} episodes` }))} />
@@ -195,7 +224,9 @@ function SeriesEditor({ header, s, characters, tasks, runs, onBack, onDeleted, o
   const [removed, setRemoved] = useState<{ episode: Episode; index: number } | null>(null)
   const ep = s.episodes.find((e) => e.id === epId) ?? s.episodes[0]
   const cast = s.cast.map((id) => characters.find((c) => c.id === id)).filter((c): c is Character => !!c)
-  const others = characters.filter((c) => !s.cast.includes(c.id))
+  const others = characters.filter((c) => !c.kind && !s.cast.includes(c.id))
+  const elements = (s.elements ?? []).map((id) => characters.find((c) => c.id === id)).filter((c): c is Character => !!c)
+  const otherElements = characters.filter((c) => c.kind === 'element' && !(s.elements ?? []).includes(c.id))
   const set = (fn: (x: Series) => void) => void updateSeries(s.id, fn)
   const running = (e: Episode) => !!runs[`${s.id}:${e.id}`]?.step
 
@@ -248,11 +279,48 @@ function SeriesEditor({ header, s, characters, tasks, runs, onBack, onDeleted, o
             </div>
           </div>
 
+          <div className="flex flex-col gap-2">
+            <span className="text-xs text-muted">Elements</span>
+            {elements.map((c) => (
+              <div key={c.id} className="group flex items-center gap-1">
+                <button type="button" onClick={() => onCharacter(c.id)} className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg py-0.5 pr-2 text-left hover:bg-raised">
+                  <Avatar c={c} t={tasks} size="size-9" />
+                  <span className="flex min-w-0 flex-col">
+                    <span className="truncate text-[13px] font-medium">{c.name || 'Unnamed'}</span>
+                    <span className={`truncate text-xs ${ready(tasks, c) ? 'text-muted' : 'text-danger'}`}>{ready(tasks, c) ? (c.category ?? 'other').replace(/^./, (x) => x.toUpperCase()) : 'Pick an image'}</span>
+                  </span>
+                </button>
+                <IconButton title="Remove from this series" className="hidden size-7 group-hover:inline-flex" onClick={() => set((x) => void (x.elements = (x.elements ?? []).filter((id) => id !== c.id)))}><X size={13} /></IconButton>
+              </div>
+            ))}
+            <div className="flex flex-wrap gap-1.5">
+              {otherElements.length > 0 && (
+                <SelectChip title="Add from Elements" label={<><Plus size={13} /> From Elements</>} value="" muted
+                  onChange={(id) => id && set((x) => void (x.elements = [...(x.elements ?? []), id]))}
+                  options={[{ value: '', label: 'Add a saved element' }, ...otherElements.map((c) => ({ value: c.id, label: c.name || 'Unnamed' }))]} />
+              )}
+              <button type="button" onClick={() => newCharacter((id) => (set((x) => void (x.elements = [...(x.elements ?? []), id])), onCharacter(id)), true)}
+                className="inline-flex h-8 items-center gap-1 rounded-full border border-dashed border-line px-3 text-[13px] text-muted hover:text-fg">
+                <Plus size={13} /> New element
+              </button>
+            </div>
+            {!elements.length && <span className="text-xs text-faint">Places and things that should look the same in every scene that names them.</span>}
+          </div>
+
           <details open={!s.episodes.some((e) => e.scenes.length)}>
             <summary className="cursor-pointer text-xs text-muted select-none">Story bible</summary>
             <div className="mt-2 flex flex-col gap-3">
               <label className="flex flex-col gap-1"><span className="text-xs text-muted">Logline</span>
                 <textarea rows={2} value={s.logline} onChange={(e) => set((x) => void (x.logline = e.target.value))} className={`${field} resize-none`} /></label>
+              <div className="flex flex-col gap-1.5"><span className="text-xs text-muted">Style (applies to scenes drawn from now on)</span>
+                <StylePicker preset={s.stylePreset} refs={s.styleRefs ?? []} compact
+                  onPreset={(id) => set((x) => {
+                    x.stylePreset = id
+                    const p = STYLE_PRESETS.find((y) => y.id === id)
+                    if (p) x.style = p.text
+                  })}
+                  onRefs={(r) => set((x) => void (x.styleRefs = r))} />
+              </div>
               <label className="flex flex-col gap-1"><span className="text-xs text-muted">Look of every scene</span>
                 <textarea rows={3} value={s.style} onChange={(e) => set((x) => void (x.style = e.target.value))} className={`${field} resize-none`} /></label>
               <label className="flex flex-col gap-1"><span className="text-xs text-muted">Continuity: what every episode must respect (updated after each finished episode)</span>
@@ -310,10 +378,60 @@ function SeriesEditor({ header, s, characters, tasks, runs, onBack, onDeleted, o
           </div>
         </aside>
         {ep ? (
-          <EpisodeView key={ep.id} s={s} ep={ep} index={s.episodes.indexOf(ep)} tasks={tasks} cast={cast} run={runs[`${s.id}:${ep.id}`]} onCharacter={onCharacter} onOpenEdit={onOpenEdit} />
+          <EpisodeView key={ep.id} s={s} ep={ep} index={s.episodes.indexOf(ep)} tasks={tasks} cast={cast} things={elements} run={runs[`${s.id}:${ep.id}`]} onCharacter={onCharacter} onOpenEdit={onOpenEdit} />
         ) : (
           <div className="flex-1" />
         )}
+      </div>
+    </div>
+  )
+}
+
+// A look to start from and up to 3 style images (click to add, or drop them here). Scenes are drawn to match both.
+function StylePicker({ preset, refs, onPreset, onRefs, compact }: {
+  preset?: string
+  refs: Attachment[]
+  onPreset: (id?: string) => void
+  onRefs: (r: Attachment[]) => void
+  compact?: boolean
+}) {
+  const picker = useRef<HTMLInputElement>(null)
+  const [note, setNote] = useState('')
+  async function add(files: FileList | File[]) {
+    const added = await toAttachments(files, ACCEPT_IMAGES)
+    if (!added.length) return setNote('Style images must be PNG, JPG or WebP.')
+    const next = [...refs, ...added.filter((a) => !refs.some((r) => r.file === a.file))]
+    setNote(next.length > 3 ? 'Up to 3 style images; the first 3 are kept.' : '')
+    onRefs(next.slice(0, 3))
+  }
+  const chip = (on: boolean) => `h-7 rounded-full border px-2.5 text-xs ${on ? 'border-fg bg-raised text-fg' : 'border-line text-muted hover:bg-raised hover:text-fg'}`
+  return (
+    <div className="flex flex-col gap-2" onDragOver={(e) => e.preventDefault()} onDrop={(e) => (e.preventDefault(), void add(e.dataTransfer.files))}>
+      <div className="flex flex-wrap gap-1">
+        {STYLE_PRESETS.map((p) => (
+          <button key={p.id} type="button" title={p.text} aria-pressed={preset === p.id} onClick={() => onPreset(preset === p.id ? undefined : p.id)} className={chip(preset === p.id)}>
+            {p.name}
+          </button>
+        ))}
+      </div>
+      <div className="flex items-center gap-2">
+        {refs.map((r) => (
+          <div key={r.file} className="group relative">
+            <img src={mediaUrl(r)} alt="Style reference" className={`${compact ? 'size-12' : 'size-14'} rounded-lg border border-line object-cover`} />
+            <button type="button" aria-label="Remove style image" onClick={() => onRefs(refs.filter((x) => x.file !== r.file))}
+              className="absolute -top-1.5 -right-1.5 hidden size-5 items-center justify-center rounded-full bg-inverse text-on-inverse group-hover:flex">
+              <X size={11} />
+            </button>
+          </div>
+        ))}
+        {refs.length < 3 && (
+          <button type="button" onClick={() => picker.current?.click()} title="Add style images (up to 3), or drop them here"
+            className={`${compact ? 'size-12' : 'size-14'} flex shrink-0 items-center justify-center rounded-lg border border-dashed border-line text-muted hover:border-fg hover:text-fg`}>
+            <ImagePlus size={16} />
+          </button>
+        )}
+        <span className="text-xs text-faint">{note || (refs.length ? `${refs.length} of 3 style images. Every scene matches their look.` : 'Style images: up to 3, every scene matches their look.')}</span>
+        <input ref={picker} type="file" multiple accept={ACCEPT_IMAGES} hidden onChange={(e) => (e.target.files && void add(e.target.files), (e.target.value = ''))} />
       </div>
     </div>
   )

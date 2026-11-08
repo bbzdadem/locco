@@ -105,8 +105,11 @@ export type UsageRow = { day: string; source: 'chat' | 'media' | 'extra'; model:
 
 // --- Series ---
 // A saved character, castable in any series. The portrait is picked from a few options; the reference sheet is made from it.
+// Elements (recurring places, props, creatures) are kept the same way, with kind 'element' and no voice.
 export type Character = {
   id: string
+  kind?: 'element'
+  category?: 'place' | 'prop' | 'creature' | 'other'
   name: string
   look: string
   personality: string
@@ -155,7 +158,11 @@ export type Series = {
   imageModel: string
   videoModel: string
   videoSound?: boolean
+  // A chosen look (preset id) and up to 3 images whose style every scene should match.
+  stylePreset?: string
+  styleRefs?: Attachment[]
   cast: string[]
+  elements?: string[]
   continuity: string
   episodes: Episode[]
   createdAt: number

@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { ELEVEN_VOICES } from '../shared/models'
 import { clipLength } from '../shared/timing'
-import type { Character, Episode, Ref, RenderRequest, Scene, Series } from '../shared/types'
+import type { Attachment, Character, Episode, Ref, RenderRequest, Scene, Series } from '../shared/types'
 import { complete } from './chat'
 import { db, dirs } from './db'
 import { pathOf } from './media'
@@ -76,6 +76,7 @@ function json<T>(text: string): T {
 const voiceId = (name?: string) => ELEVEN_VOICES.find((v) => v.name.toLowerCase() === String(name ?? '').trim().toLowerCase())?.id
 const voiceList = () => ELEVEN_VOICES.slice(0, 60).map((v) => (v.about ? `${v.name} (${v.about})` : v.name)).join('; ') || 'none (leave voice empty)'
 const castText = (cast: Character[]) => cast.map((c) => `${c.name}: ${c.personality}. Looks: ${c.look}`).join('\n') || 'none yet'
+const elementText = (els: Character[]) => els.map((e) => `${e.name} (${e.category ?? 'thing'}): ${e.look}`).join('\n') || 'none yet'
 // About 4 seconds a scene, never more than 15 scenes an episode.
 export const sceneTarget = (seconds: number) => Math.max(4, Math.min(15, Math.round(seconds / 4)))
 
@@ -94,8 +95,11 @@ function scenesFrom(out: { scenes?: any[] }): Scene[] {
 
 // The series bible: title, look, episode outlines, and any characters the story needs beyond the chosen cast
 // (those are saved to the library too, so every character built is kept).
-export async function writeSeries(idea: string, episodes: number, seconds: number, castIds: string[]): Promise<{ series: Series; created: Character[] }> {
+export async function writeSeries(idea: string, episodes: number, seconds: number, castIds: string[], style: { text?: string; refs?: Attachment[] } = {}, elementIds: string[] = []):
+  Promise<{ series: Series; created: Character[] }> {
   const cast = charactersById(castIds)
+  const elements = charactersById(elementIds)
+  const refs = (style.refs ?? []).slice(0, 3)
   const out = json<any>(await complete(WRITER, [
     `You are the showrunner of a vertical short-form series (9:16, about ${seconds}-second episodes, for TikTok and Reels).`,
     'From the idea, write the series bible. Reply with JSON only:',
@@ -103,22 +107,32 @@ export async function writeSeries(idea: string, episodes: number, seconds: numbe
     ' "continuity": "the ground rules of this world and its characters that every episode must respect (short bullet lines)",',
     ' "new_characters": [{"name": "...", "look": "precise visual description an image model can repeat: age, face, skin, hair, build, clothes",',
     '   "personality": "...", "voice": "one voice name from the list"}],',
+    ' "new_elements": [{"name": "short name, e.g. The Lighthouse", "category": "place, prop, creature or other", "look": "precise visual description an image model can repeat"}],',
     ` "episodes": [{"title": "...", "summary": "2-3 sentences: a hook in the first seconds, a clear turn, a punchline or cliffhanger; episodes build on each other"}]}`,
     `Write exactly ${episodes} episodes. The cast below is fixed; add new_characters only if the story truly needs them (0 to 3).`,
     `Cast:\n${castText(cast)}`,
+    `Recurring places and things already chosen:\n${elementText(elements)}`,
+    'Add new_elements (0 to 3) only for places or things that recur across episodes and must look the same every time.',
     `Voices to choose from (name only): ${voiceList()}.`,
+    style.text && `The look is chosen: ${style.text} Build the "style" field on it.`,
+    refs.length && `The ${refs.length} attached image${refs.length > 1 ? 's are' : ' is a'} style reference${refs.length > 1 ? 's' : ''}: describe their art style, rendering, palette and lighting in "style" (not what they show).`,
     "Write in the language of the user's idea.",
-  ].join('\n'), idea))
+  ].filter(Boolean).join('\n'), idea, undefined, refs))
   const created: Character[] = (out.new_characters ?? []).map((c: any) => ({
     id: randomUUID(), name: String(c.name ?? ''), look: String(c.look ?? ''), personality: String(c.personality ?? ''), voice: voiceId(c.voice), createdAt: Date.now(),
   }))
+  const createdElements: Character[] = (out.new_elements ?? []).slice(0, 3).map((e: any) => ({
+    id: randomUUID(), kind: 'element', name: String(e.name ?? ''), look: String(e.look ?? ''), personality: '',
+    category: ['place', 'prop', 'creature'].includes(e.category) ? e.category : 'other', createdAt: Date.now(),
+  }))
+  created.push(...createdElements)
   created.forEach(saveCharacter)
   return {
     created,
     series: {
       id: randomUUID(), title: String(out.title ?? 'Untitled series'), idea, logline: String(out.logline ?? ''), style: String(out.style ?? ''),
-      seconds, imageModel: 'gpt-image-2', videoModel: 'kling-3', videoSound: false,
-      cast: [...cast, ...created].map((c) => c.id), continuity: String(out.continuity ?? ''),
+      seconds, imageModel: 'gpt-image-2', videoModel: 'kling-3', videoSound: false, styleRefs: refs,
+      cast: [...cast, ...created.filter((c) => !c.kind)].map((c) => c.id), elements: [...elements, ...createdElements].map((e) => e.id), continuity: String(out.continuity ?? ''),
       episodes: (out.episodes ?? []).map((e: any) => ({ id: randomUUID(), title: String(e.title ?? ''), summary: String(e.summary ?? ''), step: 'script', scenes: [], music: true })),
       createdAt: Date.now(),
     },
@@ -130,6 +144,7 @@ const storySoFar = (s: Series, index: number) =>
     `Series "${s.title}": ${s.logline}`,
     `Look of every scene: ${s.style}`,
     `Cast:\n${castText(charactersById(s.cast))}`,
+    `Recurring places and things (name them exactly when they appear, so they look the same):\n${elementText(charactersById(s.elements ?? []))}`,
     `Continuity notes (must be respected):\n${s.continuity || 'none yet'}`,
     `Earlier episodes:\n${s.episodes.slice(0, index).map((e, i) => `${i + 1}. ${e.title}: ${e.recap || e.summary}`).join('\n') || 'none'}`,
   ].join('\n\n')
