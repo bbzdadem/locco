@@ -122,8 +122,20 @@ export type Character = {
 }
 // A spoken line. seconds is measured once the voice is made; it decides how long the scene runs.
 export type Line = { speaker: string; text: string; voiceTask?: string; seconds?: number }
+// The director's plan for one shot. Filled by the director pass; every field is plain text you can edit.
+export type ShotPlan = {
+  shot: string
+  beats: string
+  performance: string
+  move: string
+  environment: string
+  sound: string
+  text?: string
+  transition?: string
+}
 export type Scene = {
   id: string
+  plan?: ShotPlan
   place: string
   action: string
   camera: string
@@ -138,6 +150,7 @@ export type Scene = {
 export type Step = 'script' | 'scenes' | 'voices' | 'video' | 'cut'
 // cuts: earlier renders, oldest first (the Edit section's exports land here too).
 export type Episode = {
+  beats?: string
   id: string; title: string; summary: string; step: Step; scenes: Scene[]; recap?: string; music?: boolean; musicTask?: string; cut?: string; cuts?: string[]
 }
 // A clip on the editor's timeline. in/out are seconds in the scene's video; hold freezes the last frame; pan -1…1 moves
@@ -158,6 +171,8 @@ export type Series = {
   imageModel: string
   videoModel: string
   videoSound?: boolean
+  // Who writes the scripts: a chat model id (Claude Sonnet 5.5 unless chosen otherwise).
+  writer?: string
   // A chosen look (preset id) and up to 3 images whose style every scene should match.
   stylePreset?: string
   styleRefs?: Attachment[]

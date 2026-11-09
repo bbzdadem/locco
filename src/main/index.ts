@@ -16,7 +16,7 @@ import { credits, setKey } from './kie'
 import { mimeOf, pathOf, saveUpload } from './media'
 import {
   deleteCharacter, deletedSeries, deleteSeries, listCharacters, listSeries, mediaSeconds, render, restoreSeries, reviseScript, saveCharacter, saveSeries,
-  improveSummary, writeRecap, writeScript, writeSeries,
+  directScript, improveScene, improveSummary, writeRecap, writeScript, writeSeries,
 } from './series'
 import { generate, listTasks, removeTask, starTask, startPoller, transcribe } from './tasks'
 
@@ -182,6 +182,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('series:write', (_e, idea: string, episodes: number, seconds: number, cast: string[], style?: { text?: string; refs?: Attachment[] }, elements?: string[]) =>
     writeSeries(idea, episodes, seconds, cast, style, elements))
   ipcMain.handle('series:script', (_e, s: Series, index: number) => writeScript(s, index))
+  ipcMain.handle('series:direct', (_e, s: Series, index: number, scenes: Scene[]) => directScript(s, index, scenes))
+  ipcMain.handle('series:improveScene', (_e, s: Series, index: number, scenes: Scene[], at: number, note: string) => improveScene(s, index, scenes, at, note))
   ipcMain.handle('series:revise', (_e, s: Series, index: number, scenes: Scene[], change: string) => reviseScript(s, index, scenes, change))
   ipcMain.handle('series:recap', (_e, s: Series, index: number) => writeRecap(s, index))
   ipcMain.handle('series:improve', (_e, s: Series, index: number, text: string) => improveSummary(s, index, text))

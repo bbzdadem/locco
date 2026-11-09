@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { Attachment, Character, Chat, ChatEvent, ChatHit, EditProject, GenerateRequest, MediaKind, Message, Project, ProjectRender, Ref, RenderRequest, Scene, SendRequest, Series, Settings, Task, UsageRow } from '../shared/types'
+import type { Attachment, Character, Chat, ChatEvent, ChatHit, EditProject, GenerateRequest, MediaKind, Message, Project, ProjectRender, Ref, RenderRequest, Scene, SendRequest, Series, ShotPlan, Settings, Task, UsageRow } from '../shared/types'
 
 type Voice = { id: string; name: string; about: string; premade?: boolean }
 
@@ -37,7 +37,9 @@ const api = {
   restoreSeries: (id: string): Promise<void> => ipcRenderer.invoke('series:restore', id),
   writeSeries: (idea: string, episodes: number, seconds: number, cast: string[], style?: { text?: string; refs?: Attachment[] }, elements?: string[]): Promise<{ series: Series; created: Character[] }> =>
     ipcRenderer.invoke('series:write', idea, episodes, seconds, cast, style, elements),
-  writeScript: (s: Series, index: number): Promise<Scene[]> => ipcRenderer.invoke('series:script', s, index),
+  writeScript: (s: Series, index: number): Promise<{ beats: string; scenes: Scene[]; by: string }> => ipcRenderer.invoke('series:script', s, index),
+  directScript: (s: Series, index: number, scenes: Scene[]): Promise<{ plans: (ShotPlan | undefined)[]; by: string }> => ipcRenderer.invoke('series:direct', s, index, scenes),
+  improveScene: (s: Series, index: number, scenes: Scene[], at: number, note = ''): Promise<{ scene: Scene; by: string }> => ipcRenderer.invoke('series:improveScene', s, index, scenes, at, note),
   reviseScript: (s: Series, index: number, scenes: Scene[], change: string): Promise<Scene[]> => ipcRenderer.invoke('series:revise', s, index, scenes, change),
   writeRecap: (s: Series, index: number): Promise<{ recap: string; continuity: string }> => ipcRenderer.invoke('series:recap', s, index),
   improveSummary: (s: Series, index: number, text: string): Promise<string> => ipcRenderer.invoke('series:improve', s, index, text),

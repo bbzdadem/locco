@@ -172,18 +172,27 @@ export const sceneRefs = (s: Series, people: Character[], t: Tasks) => [...peopl
 const sentences = (...parts: (string | false | undefined)[]) =>
   parts.map((p) => (p || '').trim().replace(/[.\s]+$/, '')).filter(Boolean).map((p) => `${p}.`).join(' ')
 
+// The first beat of a plan ("0-1 s the ring flashes; 1-3 s ..."): what the opening frame shows.
+const firstBeat = (beats = '') => beats.split(/;|\n/)[0]?.replace(/^\s*\d+(\.\d+)?\s*[–-]\s*\d+(\.\d+)?\s*s\s*[:,]?\s*/i, '').trim()
+
+// The opening still of a shot: look, place, light and atmosphere, the first moment of the action, framing and
+// performance. (Camera moves and later beats are for the video.)
 export function scenePrompt(s: Series, scene: Scene, people: Character[], t: Tasks) {
   let n = 0
   const label = (c: Character) => `${c.name} = image${refsOf(t, c).length > 1 ? `s ${++n} and ${++n}` : ` ${++n}`}`
   const refs = people.filter((c) => !c.kind).map(label).join('; ')
   const things = people.filter((c) => c.kind).map(label).join('; ')
   const styles = (s.styleRefs ?? []).slice(0, 3).length
+  const p = scene.plan
   const said = scene.lines.map((l) => `${l.speaker} is speaking`).join(', ')
   return sentences(
     s.style,
     scene.place,
+    p?.environment,
     scene.action,
-    scene.camera && `Camera: ${scene.camera}`,
+    p?.beats && `Opening moment: ${firstBeat(p.beats)}`,
+    p ? p.shot && `Framing: ${p.shot}` : scene.camera && `Camera: ${scene.camera}`,
+    p?.performance,
     said,
     'A vertical 9:16 still from a short film, cinematic, no text, no captions, no subtitles',
     refs && `Keep each character exactly as in their reference images (${refs}): same face, hair and clothes`,
@@ -194,8 +203,22 @@ export function scenePrompt(s: Series, scene: Scene, people: Character[], t: Tas
 }
 export const editPrompt = (change: string) =>
   `Edit the first image: ${change}. Keep everything else the same: characters, faces, clothes, framing, light and style. Vertical 9:16, no text.`
-export const motionPrompt = (s: Series, scene: Scene) =>
-  `${scene.action}. Camera: ${scene.camera}.${scene.lines.length ? ` ${[...new Set(scene.lines.map((l) => l.speaker))].join(' and ')} talking, natural mouth movement.` : ''} ${s.style} No text, no subtitles.`
+// The video of a shot, starting from its still: what happens over time, the camera move, performance and the living
+// environment (rain, haze, light changes). Kept under 1800 characters for the video models' prompt limits.
+export function motionPrompt(s: Series, scene: Scene) {
+  const p = scene.plan
+  const talking = scene.lines.length ? `${[...new Set(scene.lines.map((l) => l.speaker))].join(' and ')} talking, natural mouth movement` : ''
+  return sentences(
+    scene.action,
+    p?.beats && `Over the shot: ${p.beats}`,
+    p ? p.move && `Camera: ${p.move}` : scene.camera && `Camera: ${scene.camera}`,
+    p?.performance,
+    p?.environment && `Environment in motion: ${p.environment}`,
+    talking,
+    s.style,
+    'No text, no subtitles, no captions',
+  ).slice(0, 1800)
+}
 
 export { timing } from '../../shared/timing'
 

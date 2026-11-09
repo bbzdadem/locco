@@ -50,6 +50,10 @@ export async function episodeProject(s: Series, ep: Episode, t: Tasks): Promise<
       p.items.push({ id: crypto.randomUUID(), track: MAIN, start: at, label: `Scene ${i + 1}`, ref: { kind: 'media', file }, media: 'video', source: src, in: 0, out: +out.toFixed(3),
         hold: +Math.max(0, tm.seconds - out).toFixed(3), speed: 1, pan: 0, zoom: 1, sound: !!s.videoSound, volume: 1 })
     }
+    // The director's on-screen text (usually the hook) goes on the text track at the start of its shot.
+    if (sc.plan?.text?.trim())
+      p.items.push({ id: crypto.randomUUID(), track: p.tracks[1].id, start: +at.toFixed(3), label: 'Text', text: sc.plan.text.trim(), style: 'title', position: 'top',
+        duration: +Math.min(tm.seconds, 2.5).toFixed(3) })
     sc.lines.forEach((l, li) => {
       const vf = fileOf(t, l.voiceTask)
       if (vf) p.items.push({ id: crypto.randomUUID(), track: voices.id, start: +(at + tm.voices[li]).toFixed(3), label: `${l.speaker}: ${l.text}`, ref: { kind: 'media', file: vf },

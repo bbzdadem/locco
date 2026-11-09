@@ -339,13 +339,17 @@ async function turn(model: ChatModel, path: string, body: object, signal: AbortS
 
 // A single answer with no tools and no chat: improving a prompt, summarizing a long chat.
 // `images` are shown to the model too (GPT 6 Sol only).
-export async function complete(modelId: string, system: string, user: string, signal = new AbortController().signal, images: Attachment[] = []) {
+// deep: think hard first (writing, directing); off for quick jobs. Claude gets text only (kie's Claude can't take images).
+export async function complete(modelId: string, system: string, user: string, signal = new AbortController().signal, images: Attachment[] = [], deep = false) {
   const model = chatModel(modelId)
-  const pictures = await Promise.all(images.map(async (a) => ({ type: 'input_image', image_url: await kieUrlFor(a) })))
-  const { path, body } = model.api === 'responses'
-    ? { path: '/codex/v1/responses', body: { model: model.id, reasoning: { effort: 'low' }, input: [
+  const pictures = model.api === 'responses' ? await Promise.all(images.map(async (a) => ({ type: 'input_image', image_url: await kieUrlFor(a) }))) : []
+  const effort = deep ? 'high' : 'low'
+  const { path, body } = model.api === 'claude'
+    ? { path: '/claude/v1/messages', body: { model: model.id, system, max_tokens: 16000, messages: [{ role: 'user', content: user }], ...(deep && { thinkingFlag: true }) } }
+    : model.api === 'responses'
+    ? { path: '/codex/v1/responses', body: { model: model.id, reasoning: { effort }, input: [
         { role: 'developer', content: [{ type: 'input_text', text: system }] }, { role: 'user', content: [{ type: 'input_text', text: user }, ...pictures] }] } }
-    : { path: `/${model.id}/v1/chat/completions`, body: { messages: [{ role: 'system', content: system }, { role: 'user', content: user }], reasoning_effort: 'low' } }
+    : { path: `/${model.id}/v1/chat/completions`, body: { messages: [{ role: 'system', content: system }, { role: 'user', content: user }], reasoning_effort: effort }}
   let text = ''
   const credits = await turn(model, path, body, signal, new Map(), (t) => (text += t ?? ''))
   spend(model.id, credits ?? 0)

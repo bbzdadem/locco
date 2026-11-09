@@ -1,9 +1,9 @@
-import { ArrowRight, Check, ChevronLeft, ChevronRight, Clapperboard, Download, FileText, Film, ImagePlus, LoaderCircle, Plus, RotateCcw, Square, TriangleAlert, Wand2, X } from 'lucide-react'
+import { ArrowRight, Check, Mic, ChevronLeft, ChevronRight, Clapperboard, Download, FileText, Film, ImagePlus, LoaderCircle, Plus, RotateCcw, Square, TriangleAlert, Wand2, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { buildInput } from '../../shared/inputs'
-import { ELEVEN_VOICES, withBest } from '../../shared/models'
+import { chatModel, ELEVEN_VOICES, withBest } from '../../shared/models'
 import { estimate, priceLabel } from '../../shared/prices'
-import type { Character, Episode, Scene, Series, Step } from '../../shared/types'
+import type { Character, Episode, Scene, Series, ShotPlan, Step } from '../../shared/types'
 import { Avatar } from './Characters'
 import { Media } from './Create'
 import { episodeProject } from './Studio'
@@ -83,74 +83,113 @@ export function EpisodeView(props: Props) {
 type StepProps = Props & { onEdit: () => void; rk: string; setEp: (fn: (e: Episode) => void) => Promise<void>; go: (s: Step) => void; selected?: string; setSelected: (id: string) => void }
 const busy = (run?: Run) => !!run?.step
 
-// --- 1. Script: written from the story bible and earlier episodes; edit it or ask for changes, then approve ---
+// --- 1. Script: the writers' room (beat sheet and shots), then the director (a shot plan for every shot, reviewed
+// against the social checklist). Edit anything, improve one shot, or ask for a change; then approve ---
+
+const WRITERS = ['claude-sonnet-5-5', 'claude-opus-5-5', 'gpt-6-sol']
+const PLAN_FIELDS: [keyof ShotPlan, string, string][] = [
+  ['shot', 'Shot', 'Size, angle, lens, composition, depth of field'],
+  ['beats', 'Action over time', '0-1 s …; 1-3 s …; 3-4 s …'],
+  ['performance', 'Performance', 'Who stands where, eyelines, expressions, gestures'],
+  ['move', 'Camera move', 'Slow push-in, whip pan, handheld drift, locked off'],
+  ['environment', 'Environment', 'Time, weather, light sources and direction, atmosphere, background life, props'],
+  ['sound', 'Sound', 'Ambience and sound effects'],
+  ['text', 'On-screen text', 'Only where it helps the hook (6 words at most)'],
+  ['transition', 'Transition', 'Smash cut, match cut, whip, cut on action'],
+]
+const writerLabel = (id: string) => chatModel(id).label
 
 function ScriptStep({ s, ep, index, cast, things, run, rk: k, setEp, go }: StepProps) {
   const [change, setChange] = useState('')
   const hasImages = ep.scenes.some((sc) => sc.frameTask)
   const names = [...cast.map((c) => c.name), 'Narrator']
+  const writer = s.writer ?? WRITERS[0]
   const setScene = (id: string, fn: (sc: Scene) => void) => setEp((e) => fn(e.scenes.find((x) => x.id === id)!))
-  const write = () => step(k, 'Writing the script…', async () => {
-    const scenes = await api.writeScript(getSeries(s.id), index)
-    await setEp((e) => void (e.scenes = scenes))
+  const fellBack = (by: string) => (by.split('|')[0] !== writer ? `${writerLabel(writer)} didn't answer${by.includes('|') ? ` (${by.split('|')[1]})` : ''}, so ${writerLabel(by.split('|')[0])} wrote this.` : undefined)
+  const unplanned = ep.scenes.filter((sc) => !sc.plan).length
+  const hasMedia = ep.scenes.some((sc) => sc.frameTask || sc.videoTask || sc.lines.some((l) => l.voiceTask))
+
+  const write = () => step(k, `Writers' room: beat sheet and shots (${writerLabel(writer)})…`, async () => {
+    const draft = await api.writeScript(getSeries(s.id), index)
+    await setEp((e) => void ((e.scenes = draft.scenes), (e.beats = draft.beats)))
+    setRun(k, { step: `Director: planning ${draft.scenes.length} shots…` })
+    const directed = await api.directScript(getSeries(s.id), index, draft.scenes)
+    await setEp((e) => e.scenes.forEach((sc, i) => (sc.plan = directed.plans[i] ?? sc.plan)))
+    return fellBack(directed.by) ?? fellBack(draft.by)
+  })
+  // Plans for a script written before (or edited after) the director pass. The story itself stays as it is.
+  const addPlans = () => step(k, `Director: planning ${ep.scenes.length} shots…`, async () => {
+    const out = await api.directScript(getSeries(s.id), index, ep.scenes)
+    await setEp((e) => e.scenes.forEach((sc, i) => (sc.plan = out.plans[i] ?? sc.plan)))
+    return fellBack(out.by)
+  })
+  const improve = (sc: Scene, note: string) => step(k, `Improving shot ${ep.scenes.indexOf(sc) + 1}…`, async () => {
+    const out = await api.improveScene(getSeries(s.id), index, ep.scenes, ep.scenes.indexOf(sc), note)
+    const media = !!(sc.frameTask || sc.videoTask || sc.lines.some((l) => l.voiceTask))
+    // A shot that already has pictures or voices keeps its story; only the plan changes.
+    await setScene(sc.id, (x) => Object.assign(x, media ? { plan: out.scene.plan } : { ...out.scene, id: x.id }))
+    return fellBack(out.by)
   })
   const revise = () => step(k, 'Revising the script…', async () => {
     const scenes = await api.reviseScript(getSeries(s.id), index, ep.scenes, change)
     await setEp((e) => void (e.scenes = scenes))
     setChange('')
   })
+  const writerChip = (
+    <SelectChip title="Who writes the script" label={<>Writer: {writerLabel(writer)}</>} value={writer} onChange={(v) => void updateSeries(s.id, (x) => void (x.writer = v))}
+      options={WRITERS.map((id) => ({ value: id, label: withBest(writerLabel(id), id) }))} />
+  )
 
   if (!ep.scenes.length)
     return (
       <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-line px-6 py-14 text-center">
         <FileText size={22} className="text-muted" />
-        <p className="max-w-md text-muted">GPT 6 Sol writes this episode as 10–15 scenes with dialogue, following the story bible, the cast and what happened in earlier episodes. You read it and approve it before anything is drawn.</p>
-        <button type="button" disabled={busy(run)} onClick={write} className={primary}>
-          {busy(run) ? <LoaderCircle size={15} className="animate-spin" /> : <Wand2 size={15} />} Write the script
-        </button>
+        <p className="max-w-lg text-muted">
+          Two passes. The writers' room plans the episode as a beat sheet built for TikTok and Reels (hook in 2 seconds, a turn every few seconds, a payoff)
+          and writes it as shots of 2–4 seconds. Then the director plans every shot (framing, lens, action over time, performance, camera move, light,
+          weather, sound) and reviews the whole against a checklist. You approve it before anything is drawn. Takes a minute or two.
+        </p>
+        <div className="flex items-center gap-2">
+          {writerChip}
+          <button type="button" disabled={busy(run)} onClick={write} className={primary}>
+            {busy(run) ? <LoaderCircle size={15} className="animate-spin" /> : <Wand2 size={15} />} Write the script
+          </button>
+        </div>
       </div>
     )
 
   return (
     <>
+      <div className="flex flex-wrap items-center gap-2">
+        {writerChip}
+        {unplanned > 0 && (
+          <button type="button" disabled={busy(run)} onClick={addPlans} className={secondary} title={hasMedia ? 'Plans for every shot; the story, pictures and voices stay as they are' : 'A shot plan for every shot'}>
+            <Clapperboard size={13} /> Plan {unplanned} shot{unplanned > 1 ? 's' : ''}
+          </button>
+        )}
+        <span className="ml-auto text-xs text-faint tabular-nums">{ep.scenes.length} shots · {sum(ep.scenes.map((sc) => sc.lines.length))} lines</span>
+      </div>
+      {ep.beats && (
+        <details className="rounded-2xl border border-line bg-surface p-3">
+          <summary className="cursor-pointer text-[13px] font-medium select-none">Beat sheet</summary>
+          <textarea aria-label="Beat sheet" rows={6} value={ep.beats} onChange={(e) => setEp((x) => void (x.beats = e.target.value))} className={`${field} mt-2 resize-y`} />
+        </details>
+      )}
       <div className="flex flex-col gap-3">
         {ep.scenes.map((sc, i) => (
-          <div key={sc.id} className="flex gap-3 rounded-2xl border border-line bg-surface p-3">
-            <span className="w-6 shrink-0 pt-1.5 text-right text-faint tabular-nums">{i + 1}</span>
-            <div className="flex min-w-0 flex-1 flex-col gap-2">
-              <div className="flex gap-2">
-                <input aria-label={`Scene ${i + 1} place`} value={sc.place} placeholder="Place and time: lighthouse kitchen, night" onChange={(e) => setScene(sc.id, (x) => void (x.place = e.target.value))} className={`${field} font-medium`} />
-                <input aria-label={`Scene ${i + 1} camera`} value={sc.camera} placeholder="Camera: close-up, slow push-in" onChange={(e) => setScene(sc.id, (x) => void (x.camera = e.target.value))} className={`${field} max-w-60`} />
-              </div>
-              <textarea aria-label={`Scene ${i + 1} action`} rows={2} value={sc.action} placeholder="What we see, in one clear moment. Name characters with @: @Mochi raises the dripping keys." onChange={(e) => setScene(sc.id, (x) => void (x.action = e.target.value))} className={`${field} resize-none`} />
-              {sc.lines.map((l, li) => (
-                <div key={li} className="flex items-center gap-2">
-                  <select aria-label="Speaker" value={l.speaker} onChange={(e) => setScene(sc.id, (x) => Object.assign(x.lines[li], { speaker: e.target.value, voiceTask: undefined, seconds: undefined }))} className={`${box} w-36 shrink-0`}>
-                    {[...new Set([...names, l.speaker])].map((n) => <option key={n} value={n}>{n}</option>)}
-                  </select>
-                  <input aria-label="Line" value={l.text} placeholder="What they say, up to 14 words" onChange={(e) => setScene(sc.id, (x) => Object.assign(x.lines[li], { text: e.target.value, voiceTask: undefined, seconds: undefined }))} className={`${box} min-w-0 flex-1`} />
-                  <IconButton title="Remove line" className="size-7" onClick={() => setScene(sc.id, (x) => void x.lines.splice(li, 1))}><X size={13} /></IconButton>
-                </div>
-              ))}
-              <div className="flex items-center gap-2">
-                {sc.lines.length < 3 && (
-                  <button type="button" onClick={() => setScene(sc.id, (x) => void x.lines.push({ speaker: names[0], text: '' }))} className="text-[13px] text-muted hover:text-fg">+ Line</button>
-                )}
-                <span className="text-xs text-faint">On screen: {[...castOf(s, cast, sc), ...elementsOf(s, things, sc)].map((c) => c.name).join(', ') || 'nobody from the cast (name one with @)'}</span>
-              </div>
-            </div>
-            <IconButton title="Remove scene" className="size-7" onClick={() => setEp((e) => void (e.scenes = e.scenes.filter((x) => x.id !== sc.id)))}><X size={14} /></IconButton>
-          </div>
+          <ShotCard key={sc.id} n={i + 1} sc={sc} names={names} onScreen={[...castOf(s, cast, sc), ...elementsOf(s, things, sc)].map((c) => c.name)}
+            busy={busy(run)} setScene={(fn) => setScene(sc.id, fn)} onImprove={(note) => improve(sc, note)}
+            onRemove={() => setEp((e) => void (e.scenes = e.scenes.filter((x) => x.id !== sc.id)))} />
         ))}
         {ep.scenes.length < 15 && (
           <button type="button" className={`${secondary} w-fit`} onClick={() => setEp((e) => void e.scenes.push({ id: crypto.randomUUID(), place: '', action: '', camera: '', cast: [], lines: [] }))}>
-            <Plus size={13} /> Scene
+            <Plus size={13} /> Shot
           </button>
         )}
       </div>
       <div className="sticky bottom-0 flex flex-wrap items-center gap-2 rounded-2xl border border-line bg-surface p-3 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
         {hasImages ? (
-          <span className="flex-1 text-[13px] text-muted">Scene images exist, so whole-script rewrites are off. Edit scenes directly.</span>
+          <span className="flex-1 text-[13px] text-muted">Scene images exist, so whole-script rewrites are off. Improve single shots or edit them directly.</span>
         ) : (
           <>
             <input aria-label="Change to the script" value={change} onChange={(e) => setChange(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && change.trim() && !busy(run) && revise()}
@@ -158,12 +197,70 @@ function ScriptStep({ s, ep, index, cast, things, run, rk: k, setEp, go }: StepP
             <button type="button" disabled={!change.trim() || busy(run)} onClick={revise} className={secondary}><Wand2 size={13} /> Revise</button>
           </>
         )}
-        <span className="text-xs text-faint tabular-nums">{ep.scenes.length} scenes · {sum(ep.scenes.map((sc) => sc.lines.length))} lines</span>
         <button type="button" disabled={busy(run) || !ep.scenes.length} onClick={() => go('scenes')} className={primary}>
           {ep.step === 'script' ? 'Approve script' : 'Scenes'} <ArrowRight size={15} />
         </button>
       </div>
     </>
+  )
+}
+
+// One shot: place, action and lines, then its plan (open to edit), with Improve.
+function ShotCard({ n, sc, names, onScreen, busy: working, setScene, onImprove, onRemove }: {
+  n: number; sc: Scene; names: string[]; onScreen: string[]; busy: boolean
+  setScene: (fn: (sc: Scene) => void) => void; onImprove: (note: string) => void; onRemove: () => void
+}) {
+  const [note, setNote] = useState('')
+  const p = sc.plan
+  return (
+    <div className="flex gap-3 rounded-2xl border border-line bg-surface p-3">
+      <span className="w-6 shrink-0 pt-1.5 text-right text-faint tabular-nums">{n}</span>
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <div className="flex gap-2">
+          <input aria-label={`Shot ${n} place`} value={sc.place} placeholder="Place and time: lighthouse kitchen, night" onChange={(e) => setScene((x) => void (x.place = e.target.value))} className={`${field} font-medium`} />
+          {!p && <input aria-label={`Shot ${n} camera`} value={sc.camera} placeholder="Camera: close-up, slow push-in" onChange={(e) => setScene((x) => void (x.camera = e.target.value))} className={`${field} max-w-60`} />}
+        </div>
+        <textarea aria-label={`Shot ${n} action`} rows={2} value={sc.action} placeholder="What happens in this shot. Name characters with @: @Mochi raises the dripping keys." onChange={(e) => setScene((x) => void (x.action = e.target.value))} className={`${field} resize-none`} />
+        {sc.lines.map((l, li) => (
+          <div key={li} className="flex items-center gap-2">
+            <select aria-label="Speaker" value={l.speaker} onChange={(e) => setScene((x) => Object.assign(x.lines[li], { speaker: e.target.value, voiceTask: undefined, seconds: undefined }))} className={`${box} w-36 shrink-0`}>
+              {[...new Set([...names, l.speaker])].map((nm) => <option key={nm} value={nm}>{nm}</option>)}
+            </select>
+            <input aria-label="Line" value={l.text} placeholder="What they say (about 2.5 words a second)" onChange={(e) => setScene((x) => Object.assign(x.lines[li], { text: e.target.value, voiceTask: undefined, seconds: undefined }))} className={`${box} min-w-0 flex-1`} />
+            <IconButton title="Remove line" className="size-7" onClick={() => setScene((x) => void x.lines.splice(li, 1))}><X size={13} /></IconButton>
+          </div>
+        ))}
+        <div className="flex items-center gap-2">
+          {sc.lines.length < 3 && <button type="button" onClick={() => setScene((x) => void x.lines.push({ speaker: names[0], text: '' }))} className="text-[13px] text-muted hover:text-fg">+ Line</button>}
+          <span className="text-xs text-faint">On screen: {onScreen.join(', ') || 'nobody from the cast (name one with @)'}</span>
+        </div>
+        <details className="rounded-xl bg-raised/60 px-3 py-2" open={!!p && n === 1}>
+          <summary className="cursor-pointer text-[13px] select-none">
+            <span className="font-medium">Shot plan</span>
+            <span className="ml-2 text-xs text-muted">{p ? [p.shot, p.move].filter(Boolean).join(' · ').slice(0, 110) : 'Not planned yet: Improve plans it'}</span>
+          </summary>
+          <div className="mt-2 grid grid-cols-[8rem_1fr] items-start gap-x-3 gap-y-1.5">
+            {PLAN_FIELDS.map(([key, label, hint]) => (
+              <label key={key} className="contents">
+                <span className="pt-1.5 text-xs text-muted">{label}</span>
+                <textarea rows={key === 'beats' || key === 'environment' ? 2 : 1} value={p?.[key] ?? ''} placeholder={hint}
+                  onChange={(e) => setScene((x) => void (x.plan = { shot: '', beats: '', performance: '', move: '', environment: '', sound: '', ...x.plan, [key]: e.target.value }))}
+                  className={`${field} resize-y text-xs`} />
+              </label>
+            ))}
+          </div>
+        </details>
+        <div className="flex items-center gap-2">
+          <input aria-label={`Note for improving shot ${n}`} value={note} onChange={(e) => setNote(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && !working && (onImprove(note), setNote(''))}
+            placeholder="Optional note for Improve: more tension, a reveal at the end, rain" className="h-8 min-w-0 flex-1 rounded-full border border-line bg-transparent px-3 text-xs focus:border-fg" />
+          <button type="button" disabled={working} onClick={() => (onImprove(note), setNote(''))} className={secondary}
+            title="Sharper action and lines and a richer plan, in context with the shots around it. A shot with pictures or voices keeps its story; only its plan changes.">
+            <Wand2 size={13} /> Improve shot
+          </button>
+        </div>
+      </div>
+      <IconButton title="Remove shot" className="size-7" onClick={onRemove}><X size={14} /></IconButton>
+    </div>
   )
 }
 
@@ -311,15 +408,15 @@ function SceneDetail({ s, sc, n, tasks, run, refs, people, k, setScene, draw }: 
 function VoicesStep({ s, ep, tasks, cast, run, rk: k, setEp, go }: StepProps) {
   const lines = ep.scenes.flatMap((sc) => sc.lines.map((l, li) => ({ sc, l, li })))
   const missing = lines.filter((x) => x.l.text.trim() && (needs(tasks, x.l.voiceTask) || x.l.seconds == null))
-  const record = () => step(k, 'Recording voices…', async () => {
-    const todo = missing.filter((x) => needs(tasks, x.l.voiceTask))
-    await makeAll(k, `Recording ${todo.length} lines…`, 'voice lines', todo,
+  type L = (typeof lines)[number]
+  // Records the given lines (all missing ones, or a single line), then measures them: their length sets the scene's.
+  const record = (todo: L[] = missing.filter((x) => needs(tasks, x.l.voiceTask))) => step(k, 'Recording voices…', async () => {
+    await makeAll(k, `Recording ${todo.length} line${todo.length > 1 ? 's' : ''}…`, 'voice lines', todo,
       (x) => makeOne('el-tts', voiceFor(cast, x.l.speaker) ? { voice: voiceFor(cast, x.l.speaker) } : {}, [], x.l.text).then((ids) => ids[0]),
       (pairs) => setEp((e) => pairs.forEach(([x, id]) => Object.assign(e.scenes.find((s) => s.id === x.sc.id)!.lines[x.li], { voiceTask: id, seconds: undefined }))))
-    // How long each line really is decides how long its scene runs.
     const all = Object.fromEntries((await api.tasks()).map((t) => [t.id, t]))
     const latest = getSeries(s.id).episodes.find((e) => e.id === ep.id)!
-    const measured = await Promise.all(latest.scenes.flatMap((sc) => sc.lines.map(async (l, li) => ({ sc: sc.id, li, s: fileOf(all, l.voiceTask) ? await api.mediaSeconds(fileOf(all, l.voiceTask)!) : undefined }))))
+    const measured = await Promise.all(latest.scenes.flatMap((sc) => sc.lines.map(async (l, li) => ({ sc: sc.id, li, s: l.seconds == null && fileOf(all, l.voiceTask) ? await api.mediaSeconds(fileOf(all, l.voiceTask)!) : undefined }))))
     await setEp((e) => measured.forEach((m) => m.s && (e.scenes.find((x) => x.id === m.sc)!.lines[m.li].seconds = m.s)))
   })
   const total = sum(ep.scenes.map((sc) => timing(sc).seconds))
@@ -330,7 +427,7 @@ function VoicesStep({ s, ep, tasks, cast, run, rk: k, setEp, go }: StepProps) {
       {!ELEVEN_VOICES.length && <p className="rounded-xl bg-raised px-3 py-2.5 text-[13px]">Add your ElevenLabs key in Settings to record the voices.</p>}
       <div className="flex flex-wrap items-center gap-2">
         {missing.length > 0 && (
-          <button type="button" disabled={busy(run) || !ELEVEN_VOICES.length} onClick={record} className={primary}>
+          <button type="button" disabled={busy(run) || !ELEVEN_VOICES.length} onClick={() => record()} className={primary}>
             <Clapperboard size={15} /> Record {missing.length} line{missing.length > 1 ? 's' : ''} <span className="font-normal opacity-70">ElevenLabs plan</span>
           </button>
         )}
@@ -356,10 +453,10 @@ function VoicesStep({ s, ep, tasks, cast, run, rk: k, setEp, go }: StepProps) {
                       : stateOf(tasks, l.voiceTask) === 'busy' ? <LoaderCircle size={14} className="animate-spin text-muted" />
                       : stateOf(tasks, l.voiceTask) === 'fail' ? <span className="text-danger">{tasks[l.voiceTask!]?.error}</span> : <span className="text-faint">not recorded</span>}
                     {l.seconds != null && <span className="w-12 shrink-0 text-right text-faint tabular-nums">{fmt(l.seconds)}</span>}
-                    {f && (
-                      <IconButton title="Record again" className="size-7" disabled={busy(run)}
-                        onClick={() => setEp((e) => Object.assign(e.scenes.find((x) => x.id === sc.id)!.lines[li], { voiceTask: undefined, seconds: undefined }))}>
-                        <RotateCcw size={13} />
+                    {stateOf(tasks, l.voiceTask) !== 'busy' && l.text.trim() && (
+                      <IconButton title={f ? 'Record this line again' : 'Record this line'} className="size-7" disabled={busy(run) || !ELEVEN_VOICES.length}
+                        onClick={() => void record([{ sc, l, li }])}>
+                        {f ? <RotateCcw size={13} /> : <Mic size={13} />}
                       </IconButton>
                     )}
                   </div>

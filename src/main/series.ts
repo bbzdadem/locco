@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { ELEVEN_VOICES } from '../shared/models'
 import { clipLength } from '../shared/timing'
-import type { Attachment, Character, Episode, Ref, RenderRequest, Scene, Series } from '../shared/types'
+import type { Attachment, Character, Episode, Ref, RenderRequest, Scene, Series, ShotPlan } from '../shared/types'
 import { complete } from './chat'
 import { db, dirs } from './db'
 import { pathOf } from './media'
@@ -78,19 +78,59 @@ const voiceList = () => ELEVEN_VOICES.slice(0, 60).map((v) => (v.about ? `${v.na
 const castText = (cast: Character[]) => cast.map((c) => `${c.name}: ${c.personality}. Looks: ${c.look}`).join('\n') || 'none yet'
 const elementText = (els: Character[]) => els.map((e) => `${e.name} (${e.category ?? 'thing'}): ${e.look}`).join('\n') || 'none yet'
 // About 4 seconds a scene, never more than 15 scenes an episode.
-export const sceneTarget = (seconds: number) => Math.max(4, Math.min(15, Math.round(seconds / 4)))
+// Shots of about 3 seconds (social pacing), at least 5, at most 15.
+export const sceneTarget = (seconds: number) => Math.max(5, Math.min(15, Math.round(seconds / 3)))
 
-const SCENE_JSON = [
-  '{"scenes": [{"place": "where and when, e.g. Lighthouse kitchen, night", "action": "what we see: who does what, by name; one clear moment",',
-  ' "camera": "framing and movement", "cast": ["names of the characters on screen"],',
-  ' "lines": [{"speaker": "a character name or Narrator", "text": "at most 14 words"}]}]}',
-].join('\n')
+const str = (v: unknown) => String(v ?? '').trim()
+function planFrom(p: any): ShotPlan | undefined {
+  if (!p || typeof p !== 'object') return undefined
+  return { shot: str(p.shot), beats: str(p.beats), performance: str(p.performance), move: str(p.move), environment: str(p.environment), sound: str(p.sound),
+    ...(str(p.text) && { text: str(p.text) }), ...(str(p.transition) && { transition: str(p.transition) }) }
+}
 function scenesFrom(out: { scenes?: any[] }): Scene[] {
-  return (out.scenes ?? []).slice(0, 15).map((x) => ({
-    id: randomUUID(), place: String(x.place ?? ''), action: String(x.action ?? ''), camera: String(x.camera ?? ''),
-    cast: Array.isArray(x.cast) ? x.cast.map(String) : [],
-    lines: (Array.isArray(x.lines) ? x.lines : []).slice(0, 2).map((l: any) => ({ speaker: String(l.speaker ?? ''), text: String(l.text ?? '') })).filter((l: any) => l.text.trim()),
+  return (out.scenes ?? []).slice(0, 15).map((x) => {
+    const plan = planFrom(x.plan)
+    return {
+      id: randomUUID(), place: str(x.place), action: str(x.action), camera: str(x.camera) || (plan ? [plan.shot, plan.move].filter(Boolean).join('; ') : ''),
+      cast: Array.isArray(x.cast) ? x.cast.map(String) : [],
+      lines: (Array.isArray(x.lines) ? x.lines : []).slice(0, 2).map((l: any) => ({ speaker: str(l.speaker), text: str(l.text) })).filter((l: any) => l.text),
+      ...(plan && { plan }),
+    }
+  })
+}
+
+// Scripts are written by the series' writer (Claude Sonnet 5.5 unless chosen otherwise), thinking hard. If Claude can't be
+// reached after its retries, GPT 6 Sol writes instead, so a script always arrives; `by` says who wrote it.
+const writerOf = (s: Series) => s.writer ?? 'claude-sonnet-5-5'
+// When kie's Claude fails (it has outages), skip it for 10 minutes instead of spending ~20 s of retries on every call.
+let claudeDownUntil = 0
+let claudeWhy = ''
+async function write(s: Series, system: string, user: string) {
+  const first = writerOf(s)
+  const skip = first !== 'gpt-6-sol' && Date.now() < claudeDownUntil
+  if (!skip) {
+    try {
+      return { text: await complete(first, system, user, undefined, [], true), by: first }
+    } catch (e) {
+      if (first === 'gpt-6-sol') throw e
+      claudeDownUntil = Date.now() + 10 * 60_000
+      claudeWhy = String((e as Error).message).slice(0, 120)
+    }
+  }
+  return { text: await complete('gpt-6-sol', system, user, undefined, [], true), by: `gpt-6-sol|${claudeWhy}` }
+}
+
+// Runs jobs a few at a time (kie and the writers handle a handful of parallel calls well).
+async function pool<T>(jobs: (() => Promise<T>)[], size: number) {
+  const out: T[] = []
+  let next = 0
+  await Promise.all(Array.from({ length: Math.min(size, jobs.length) }, async () => {
+    while (next < jobs.length) {
+      const i = next++
+      out[i] = await jobs[i]()
+    }
   }))
+  return out
 }
 
 // The series bible: title, look, episode outlines, and any characters the story needs beyond the chosen cast
@@ -149,31 +189,97 @@ const storySoFar = (s: Series, index: number) =>
     `Earlier episodes:\n${s.episodes.slice(0, index).map((e, i) => `${i + 1}. ${e.title}: ${e.recap || e.summary}`).join('\n') || 'none'}`,
   ].join('\n\n')
 
-// The script of one episode, as scenes with their dialogue.
-export async function writeScript(s: Series, index: number): Promise<Scene[]> {
+const CRAFT = [
+  'This is vertical 9:16 short-form video for TikTok, Reels and Shorts. Viewers decide in 1-2 seconds whether to keep watching.',
+  'Structure: HOOK (0-2 s: a striking image plus a line or question that opens a gap) → SETUP → ESCALATION with a turn every 3-5 s → PAYOFF or twist → BUTTON (a final beat: punchline, cliffhanger, or a loop back to the opening image).',
+  'Every shot must change something: a reveal, a reaction, a movement, new information. No two shots in a row may say the same thing.',
+  'Vary shot size, angle and place; never three similar shots in a row. Let pictures carry information; dialogue adds character, subtext and wit.',
+  'Dialogue: natural, specific, in character, never on-the-nose; at most 2 lines per shot, each short enough to say in the shot (about 2.5 words a second).',
+].join('\n')
+
+const DIRECTION = [
+  'For every shot write a plan an image model and a video model can follow exactly. Be concrete and visual; no vague words like "dramatic" or "cinematic" on their own.',
+  '- shot: shot size (extreme close-up, close-up, medium, wide, over-the-shoulder, POV, insert), angle, lens (e.g. 24mm, 50mm, 100mm macro), composition in 9:16 (keep faces and key action in the middle; the top 15% and bottom 25% stay free of key action because the app UI covers them), depth of field.',
+  '- beats: what happens over the shot, timed, 2-4 beats, e.g. "0-1 s the headlights sweep; 1-3 s Sol leans in; 3-4 s he looks up".',
+  '- performance: who stands where, eyelines, expressions, gestures, body language.',
+  '- move: one clear camera move and its speed (slow push-in, whip pan, handheld drift, static), or "locked off".',
+  '- environment: time, weather, light sources with direction and colour, atmosphere (rain, haze, dust, steam), background life, props and their state (carried over between shots).',
+  '- sound: ambience and 1-3 sound effects.',
+  '- text: on-screen text only where it helps retention (usually the hook), at most 6 words; otherwise empty.',
+  '- transition: how this shot cuts to the next (smash cut, match cut, whip, hard cut on action).',
+].join('\n')
+
+const SCRIPT_JSON = '{"beats": "the beat sheet: numbered beats with their seconds", "scenes": [{"place": "where and when", "action": "what happens in this shot, by name", "cast": ["characters on screen"], "lines": [{"speaker": "name or Narrator", "text": "the line"}]}]}'
+const DIRECTED_JSON = '{"scenes": [{"place": "...", "action": "...", "cast": ["..."], "lines": [{"speaker": "...", "text": "..."}], "plan": {"shot": "...", "beats": "...", "performance": "...", "move": "...", "environment": "...", "sound": "...", "text": "", "transition": "..."}}]}'
+
+// Pass 1, the writers' room: a beat sheet built for social, then the script as short shots.
+export async function writeScript(s: Series, index: number): Promise<{ beats: string; scenes: Scene[]; by: string }> {
   const ep = s.episodes[index]
   const n = sceneTarget(s.seconds)
-  return scenesFrom(json(await complete(WRITER, [
-    'You write scripts for a vertical short series. Each scene becomes one image, then a short silent clip, with the dialogue voiced over it.',
+  const { text, by } = await write(s, [
+    'You are the head writer of a vertical short series. First plan the episode as a beat sheet, then write it as shots.',
+    CRAFT,
     storySoFar(s, index),
-    `Write episode ${index + 1} in about ${n} scenes (never more than 15). Reply with JSON only:`,
-    SCENE_JSON,
-    'Scene 1 hooks instantly. Each scene is one visual moment with at most 2 lines. Use only the cast (new walk-on people only if essential, unnamed).',
-    'Stay consistent with the continuity notes and earlier episodes: names, looks, places, what happened. Write in the language of the series.',
-  ].join('\n\n'), `Episode ${index + 1}: ${ep.title}. ${ep.summary}`)))
+    `Episode ${index + 1} runs about ${s.seconds} seconds: write about ${n} shots of 2-4 seconds each (never more than 15).`,
+    'Use only the cast (walk-on people unnamed, only if essential) and name recurring places and things exactly. Stay consistent with the continuity notes and earlier episodes.',
+    'If the episode brief already has lines, beats or timings, keep them; build on them.',
+    `Reply with JSON only:\n${SCRIPT_JSON}`,
+    'Write in the language of the series.',
+  ].join('\n\n'), `Episode ${index + 1}: ${ep.title}\n${ep.summary}`)
+  const out = json<{ beats?: string; scenes?: any[] }>(text)
+  return { beats: str(out.beats), scenes: scenesFrom(out), by }
 }
 
-// A change you asked for ("make Lala the one who breaks the machine"), applied to the whole script.
-export async function reviseScript(s: Series, index: number, scenes: Scene[], change: string): Promise<Scene[]> {
-  const current = scenes.map(({ place, action, camera, cast, lines }) => ({ place, action, camera, cast, lines: lines.map(({ speaker, text }) => ({ speaker, text })) }))
-  return scenesFrom(json(await complete(WRITER, [
-    'You revise the script of one episode of a vertical short series. Apply the requested change and keep everything else as it is.',
+const plain = (scenes: Scene[]) => scenes.map(({ place, action, cast, lines, plan }) => ({ place, action, cast, lines: lines.map(({ speaker, text }) => ({ speaker, text })), ...(plan && { plan }) }))
+
+// Pass 2, the director: a shot plan for every shot. Each shot is planned on its own (five at a time) with the whole
+// episode as context, so plans stay in continuity and a full episode is planned in about a minute. The story itself
+// stays as written (the writers' room already reviewed it); Improve shot rewrites a single shot.
+export async function directScript(s: Series, index: number, scenes: Scene[]): Promise<{ plans: (ShotPlan | undefined)[]; by: string }> {
+  const context = JSON.stringify({ episode: s.episodes[index].title, shots: plain(scenes) })
+  const results = await pool(scenes.map((_, i) => async () => {
+    const { text, by } = await write(s, [
+      'You are the director of a vertical short series. Write the shot plan for ONE shot of the episode, in continuity with the shots around it.',
+      CRAFT,
+      DIRECTION,
+      storySoFar(s, index),
+      'Keep the shot\'s place, action, cast and lines as they are. Vary framing and movement from the neighbouring shots.',
+      'Reply with JSON only: {"shot": "...", "beats": "...", "performance": "...", "move": "...", "environment": "...", "sound": "...", "text": "", "transition": "..."}',
+      'Write in the language of the series.',
+    ].join('\n\n'), `Plan shot ${i + 1} of ${scenes.length}.\n${context}`)
+    const raw = json<any>(text)
+    return { plan: planFrom(raw.plan ?? raw), by }
+  }), 5)
+  return { plans: results.map((r) => r.plan), by: results.find((r) => r.by !== writerOf(s))?.by ?? writerOf(s) }
+}
+
+// Rewrites one shot (and its plan) to be stronger, in context, optionally following your note.
+export async function improveScene(s: Series, index: number, scenes: Scene[], at: number, note: string): Promise<{ scene: Scene; by: string }> {
+  const { text, by } = await write(s, [
+    'You are the director of a vertical short series. Make one shot stronger: sharper action and lines, a richer, filmable plan. Keep it in the story and in continuity with the shots around it.',
+    CRAFT,
+    DIRECTION,
     storySoFar(s, index),
-    `Current script of episode ${index + 1}:\n${JSON.stringify({ scenes: current })}`,
-    'Reply with the full revised script, JSON only, same shape:',
-    SCENE_JSON,
-    'Never more than 15 scenes, at most 2 lines per scene. Write in the language of the series.',
-  ].join('\n\n'), change)))
+    `Reply with JSON only, just this shot:\n${DIRECTED_JSON.replace('{"scenes": [', '').replace(/\]\}$/, '')}`,
+    'Write in the language of the series.',
+  ].join('\n\n'), JSON.stringify({ shotToImprove: at + 1, note: note || 'make it better', scenes: plain(scenes) }))
+  const raw = json<any>(text)
+  const [scene] = scenesFrom({ scenes: [raw.scenes?.[0] ?? raw] })
+  if (!scene) throw new Error('The writer didn’t send back a usable shot. Try again.')
+  return { scene, by }
+}
+
+// A change you asked for ("make Lala the one who breaks the machine"), applied to the whole script, plans included.
+export async function reviseScript(s: Series, index: number, scenes: Scene[], change: string): Promise<Scene[]> {
+  const { text } = await write(s, [
+    'You revise one episode of a vertical short series. Apply the requested change and keep everything else as it is, shot plans included (update them where the change needs it).',
+    CRAFT,
+    storySoFar(s, index),
+    `Current episode:\n${JSON.stringify({ scenes: plain(scenes) })}`,
+    `Reply with the full revised episode, JSON only:\n${DIRECTED_JSON}`,
+    'Never more than 15 shots, at most 2 lines per shot. Write in the language of the series.',
+  ].join('\n\n'), change)
+  return scenesFrom(json(text))
 }
 
 // Sharpens an episode summary (the brief its script is written from) using the story bible and earlier episodes.

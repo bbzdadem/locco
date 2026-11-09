@@ -1,4 +1,4 @@
-import { Box, Check, ImagePlus, LoaderCircle, Pause, Plus, RotateCcw, Trash2, UserRound, Volume2, X } from 'lucide-react'
+import { Box, Check, ImagePlus, LoaderCircle, Minus, Pause, Plus, RotateCcw, Trash2, UserRound, Volume2, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { ELEVEN_VOICES } from '../../shared/models'
 import { estimate, priceLabel } from '../../shared/prices'
@@ -71,6 +71,7 @@ export function CharacterBuilder({ id, tasks, usedIn, onClose }: { id: string; t
   const [busy, setBusy] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [, redraw] = useState(0)
+  const [count, setCount] = useState(1)
   const picker = useRef<HTMLInputElement>(null)
   const closeRef = useRef(onClose)
   useEffect(() => {
@@ -108,7 +109,7 @@ export function CharacterBuilder({ id, tasks, usedIn, onClose }: { id: string; t
 
   const makeOptions = () => act('options', async () => {
     const ids = await makeOne(CHAR_MODEL, { aspect_ratio: shape, resolution: '1K' }, c.photo ? [c.photo] : [],
-      `${portraitPrompt(c)}${c.photo ? ` Base the ${el ? c.category === 'place' ? 'place' : 'object' : 'person'} on the reference photo.` : ''}`, 3)
+      `${portraitPrompt(c)}${c.photo ? ` Base the ${el ? c.category === 'place' ? 'place' : 'object' : 'person'} on the reference photo.` : ''}`, count)
     set({ options: ids, portraitTask: undefined, sheetTask: undefined })
   })
   const pick = (taskId: string) => act('sheet', async () => {
@@ -173,7 +174,7 @@ export function CharacterBuilder({ id, tasks, usedIn, onClose }: { id: string; t
             <img src={mediaUrl({ kind: 'media', file: portrait })} alt={`${c.name}'s portrait`} style={{ aspectRatio: shape.replace(':', ' / ') }} className="w-40 rounded-xl object-cover ring-2 ring-fg" />
           )}
           {options.length ? (
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2">
               {options.map((o) => {
                 const file = fileOf(tasks, o)
                 const st = stateOf(tasks, o)
@@ -189,11 +190,18 @@ export function CharacterBuilder({ id, tasks, usedIn, onClose }: { id: string; t
               })}
             </div>
           ) : null}
+          <div className="flex items-center gap-2">
           <button type="button" disabled={!canPortraits || !!busy} onClick={makeOptions}
             className="inline-flex h-9 w-fit items-center gap-2 rounded-full bg-inverse px-4 font-medium text-on-inverse disabled:opacity-35">
             {busy === 'options' ? <LoaderCircle size={15} className="animate-spin" /> : options.length ? <RotateCcw size={15} /> : <Plus size={15} />}
-            {options.length ? 'Three new options' : el ? 'Make 3 images' : 'Make 3 portraits'} <span className="font-normal opacity-70">({each} each)</span>
+            {options.length ? 'New' : 'Make'} {count} {el ? (count > 1 ? 'images' : 'image') : count > 1 ? 'portraits' : 'portrait'} <span className="font-normal opacity-70">({each} each)</span>
           </button>
+          <span className="inline-flex items-center rounded-full border border-line">
+            <IconButton title="Fewer" className="size-8" disabled={count <= 1} onClick={() => setCount(count - 1)}><Minus size={14} /></IconButton>
+            <span className="w-5 text-center text-[13px] tabular-nums">{count}</span>
+            <IconButton title="More (up to 4)" className="size-8" disabled={count >= 4} onClick={() => setCount(count + 1)}><Plus size={14} /></IconButton>
+          </span>
+          </div>
         </Section>
 
         <Section n={3} title={el ? 'More angles' : 'Reference sheet'} done={!!sheet} locked={!c.portraitTask} hint={`Pick ${el ? 'an image' : 'a portrait'} first; ${el ? 'the angles are' : 'the sheet is'} made from it.`}>

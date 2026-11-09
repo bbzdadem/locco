@@ -77,7 +77,28 @@ async function audio(res: Response) {
   return { bytes: new Uint8Array(await res.arrayBuffer()), ext: type.includes('wav') ? '.wav' : '.mp3' }
 }
 
+// ponytail: one global limit of 3; raise it if your ElevenLabs plan allows more parallel requests.
+let active = 0
+const waiting: (() => void)[] = []
+const slot = () => (active < 3 ? (active++, Promise.resolve()) : new Promise<void>((r) => waiting.push(() => (active++, r()))))
+const free = () => (active--, waiting.shift()?.())
+
 export async function runEleven(modelId: string, prompt: string, input: Record<string, unknown>) {
+  for (let attempt = 0; ; attempt++) {
+    await slot()
+    try {
+      return await runOnce(modelId, prompt, input)
+    } catch (e) {
+      // "Too many concurrent requests" (from another app on the same key, say): wait and try again a few times.
+      if (attempt >= 4 || !/concurrent|429|rate limit|too many/i.test((e as Error).message)) throw e
+    } finally {
+      free()
+    }
+    await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)))
+  }
+}
+
+async function runOnce(modelId: string, prompt: string, input: Record<string, unknown>) {
   const mp3 = 'output_format=mp3_44100_128'
   switch (modelId) {
     case 'el-tts':
