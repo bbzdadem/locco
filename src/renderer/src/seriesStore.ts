@@ -56,7 +56,12 @@ export function setRun(key: string, r?: Run) {
 // --- Models ---
 
 export const IMAGE_MODELS = ['gpt-image-2', 'nano-banana-pro', 'nano-banana-2', 'seedream-4-5', 'wan-2-7-image']
-export const VIDEO_MODELS = ['kling-3', 'seedance-2-fast', 'grok-imagine']
+// Models that animate a drawn frame: each takes it as the first frame, makes vertical clips, and has a clip length that
+// fits short shots. Reference-only and text-only models are left out (they can't start from the scene's image).
+export const VIDEO_MODELS = [
+  'kling-3', 'kling-2-6', 'kling-4-flash-keyframes', 'seedance-2-5', 'seedance-2', 'seedance-2-fast', 'seedance-2-mini',
+  'wan-3', 'minimax-h3', 'hailuo-2-3', 'grok-imagine',
+]
 export const model = (id: string) => MEDIA_MODELS.find((m) => m.id === id)!
 const spec = (m: MediaModel) => (m.image ?? m.text)!
 const has = (m: MediaModel, name: string) => [m.text, m.image].some((s) => s?.fields.some((f) => f.name === name))
@@ -70,6 +75,7 @@ export function videoValues(m: MediaModel, seconds: number, sound: boolean) {
   const v: Record<string, unknown> = { aspect_ratio: '9:16', duration: String(clipFor(m, seconds)), resolution: enumOf(m, 'resolution')[0] }
   if (has(m, 'sound')) v.sound = sound
   if (has(m, 'generate_audio')) v.generate_audio = sound
+  if (has(m, 'audio')) v.audio = sound
   if (has(m, 'mode') && m.id.startsWith('kling')) v.mode = 'std'
   return v
 }

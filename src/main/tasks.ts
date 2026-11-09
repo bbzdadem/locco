@@ -45,6 +45,9 @@ export async function generate(req: GenerateRequest): Promise<string[]> {
     else if (f.type === 'boolean') v = v === true || v === 'true'
     input[f.name] = v
   }
+  // Veo 3.1 hides its mode and kie's guess fails on a single image: 1-2 images are the first (and last) frame, 3 are references.
+  if (model.id === 'veo-3-1' && Array.isArray(input.image_urls))
+    input.generation_type = input.image_urls.length > 2 ? 'REFERENCE_2_VIDEO' : 'FIRST_AND_LAST_FRAMES_2_VIDEO'
   // Tools also take ids that aren't in kie's field list (Suno's task_id), so pass those through.
   if (req.variant === 'tool') for (const [k, v] of Object.entries(req.input)) if (!(k in input) && !spec.fields.some((f) => f.name === k)) input[k] = v
   const count = Math.min(Math.max(Math.round(req.count) || 1, 1), 4)
