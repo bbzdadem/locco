@@ -119,6 +119,8 @@ export type Character = {
   // A product's other photos (its back, the label, the box), next to the main one in photo.
   photos?: Attachment[]
   options?: string[]
+  // The image model its pictures and angles are made with (GPT Image 2 unless you pick another).
+  imageModel?: string
   portraitTask?: string
   sheetTask?: string
   createdAt: number

@@ -1,10 +1,11 @@
 import { Box, Check, ImagePlus, LoaderCircle, Minus, Pause, Plus, RotateCcw, Trash2, UserRound, Volume2, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { ELEVEN_VOICES } from '../../shared/models'
+import { buildInput } from '../../shared/inputs'
+import { ELEVEN_VOICES, withBest } from '../../shared/models'
 import { estimate, priceLabel } from '../../shared/prices'
 import type { Attachment, Character, Series } from '../../shared/types'
 import { ACCEPT_IMAGES, api, errMsg, mediaUrl, toAttachments } from './lib'
-import { fileOf, getChar, img, makeOne, photosOf, portraitPrompt, removeChar, saveChar, sheetPrompt, stateOf, type Tasks, updateChar, voiceName } from './seriesStore'
+import { fileOf, getChar, IMAGE_MODELS, img, makeOne, model, photosOf, portraitPrompt, removeChar, saveChar, sheetPrompt, stateOf, type Tasks, updateChar, voiceName } from './seriesStore'
 import { IconButton, SelectChip } from './ui'
 import { VoiceTools } from './Voices'
 
@@ -108,7 +109,10 @@ export function CharacterBuilder({ id, tasks, usedIn, onClose }: { id: string; t
   const known = !!voice
   const el = c.kind === 'element'
   const shape = el ? (c.category === 'place' ? '9:16' : '1:1') : '3:4'
-  const each = priceLabel(estimate(CHAR_MODEL, { resolution: '1K' }))
+  // Pictures and angles are made with the model picked here (GPT Image 2 unless you pick another), at 1K.
+  const im = c.imageModel && IMAGE_MODELS.includes(c.imageModel) ? c.imageModel : CHAR_MODEL
+  const priceAt = (aspect: string) => priceLabel(estimate(im, buildInput(model(im), { aspect_ratio: aspect, resolution: '1K' }, {}).input))
+  const each = priceAt(shape)
   // A product can have up to 4 photos (the back, the label, the box); the image, its angles and the writer see them all.
   const product = c.category === 'product'
   const photos = photosOf(c)
@@ -117,19 +121,16 @@ export function CharacterBuilder({ id, tasks, usedIn, onClose }: { id: string; t
   const sheetRefs = (file: string) => [img(file), ...(product ? photos : [])]
 
   const makeOptions = () => act('options', async () => {
-    const ids = await makeOne(CHAR_MODEL, { aspect_ratio: shape, resolution: '1K' }, photos,
+    const ids = await makeOne(im, { aspect_ratio: shape, resolution: '1K' }, photos,
       `${portraitPrompt(c)}${photos.length ? ` Base the ${el ? c.category === 'place' ? 'place' : 'object' : 'person'} on the reference photo${photos.length > 1 ? 's' : ''}.` : ''}`, count)
     // New images go first, next to the earlier ones (failed ones are dropped); the picked image and its angles stay
     // until you pick another.
     await updateChar(id, (x) => void (x.options = [...ids, ...(x.options ?? []).filter((o) => stateOf(tasks, o) !== 'fail')]))
   })
-  const pick = (taskId: string) => act('sheet', async () => {
-    const file = fileOf(tasks, taskId)!
-    const [sheetTask] = await makeOne(CHAR_MODEL, { aspect_ratio: '16:9', resolution: '1K' }, sheetRefs(file), sheetPrompt(c))
-    set({ portraitTask: taskId, sheetTask })
-  })
-  const redoSheet = () => act('sheet', async () => {
-    const [sheetTask] = await makeOne(CHAR_MODEL, { aspect_ratio: '16:9', resolution: '1K' }, sheetRefs(portrait!), sheetPrompt(c))
+  // Picking only picks: the angles are optional (step 3). Angles made from an earlier pick no longer match, so they go.
+  const pick = (taskId: string) => set({ portraitTask: taskId, sheetTask: undefined })
+  const makeSheet = () => act('sheet', async () => {
+    const [sheetTask] = await makeOne(im, { aspect_ratio: '16:9', resolution: '1K' }, sheetRefs(portrait!), sheetPrompt(c))
     set({ sheetTask })
   })
 
@@ -230,10 +231,12 @@ export function CharacterBuilder({ id, tasks, usedIn, onClose }: { id: string; t
             <span className="w-5 text-center text-[13px] tabular-nums">{count}</span>
             <IconButton title="More (up to 4)" className="size-8" disabled={count >= 4} onClick={() => setCount(count + 1)}><Plus size={14} /></IconButton>
           </span>
+          <SelectChip title="Image model (used for its angles too)" label={<>Model: {model(im).label}</>} value={im} onChange={(v) => set({ imageModel: v === CHAR_MODEL ? undefined : v })}
+            options={IMAGE_MODELS.map((id) => ({ value: id, label: withBest(model(id).label, id) }))} />
           </div>
         </Section>
 
-        <Section n={3} title={el ? 'More angles' : 'Reference sheet'} done={!!sheet} locked={!c.portraitTask} hint={`Pick ${el ? 'an image' : 'a portrait'} first; ${el ? 'the angles are' : 'the sheet is'} made from it.`}>
+        <Section n={3} title={el ? 'More angles (optional)' : 'Reference sheet (optional)'} done={!!sheet} locked={!c.portraitTask} hint={`Pick ${el ? 'an image' : 'a portrait'} first; ${el ? 'the angles are' : 'the sheet is'} made from it.`}>
           {c.sheetTask && (
             <div className="relative aspect-video overflow-hidden rounded-xl bg-raised">
               {sheet ? <img src={mediaUrl({ kind: 'media', file: sheet })} alt="Reference sheet" className="size-full object-contain" />
@@ -243,11 +246,18 @@ export function CharacterBuilder({ id, tasks, usedIn, onClose }: { id: string; t
             </div>
           )}
           {portrait && (
-            <button type="button" disabled={!!busy} onClick={redoSheet} className="inline-flex h-8 w-fit items-center gap-1.5 rounded-full border border-line px-3 text-[13px] text-muted hover:bg-raised hover:text-fg disabled:opacity-40">
-              <RotateCcw size={13} /> {c.sheetTask ? 'Redo sheet' : 'Make reference sheet'}
+            <button type="button" disabled={!!busy} onClick={makeSheet}
+              className={c.sheetTask ? 'inline-flex h-8 w-fit items-center gap-1.5 rounded-full border border-line px-3 text-[13px] text-muted hover:bg-raised hover:text-fg disabled:opacity-40'
+                : 'inline-flex h-9 w-fit items-center gap-2 rounded-full bg-inverse px-4 font-medium text-on-inverse disabled:opacity-35'}>
+              {busy === 'sheet' ? <LoaderCircle size={14} className="animate-spin" /> : c.sheetTask ? <RotateCcw size={13} /> : <Plus size={15} />}
+              {c.sheetTask ? (el ? 'Redo angles' : 'Redo sheet') : el ? 'Make more angles' : 'Make reference sheet'} <span className="font-normal opacity-70">({priceAt('16:9')})</span>
             </button>
           )}
-          <p className="text-xs text-faint">{el ? 'Scenes that name it are drawn from these images, so it looks the same every time.' : 'Scenes are drawn from the sheet and the portrait, so the face and clothes stay the same everywhere.'}</p>
+          <p className="text-xs text-faint">
+            {!c.sheetTask
+              ? `Optional. Without it, scenes are drawn from the picked ${el ? 'image' : 'portrait'}; ${el ? 'the angles keep it' : 'the sheet keeps the face and clothes'} steadier from every side.`
+              : el ? 'Scenes that name it are drawn from these images, so it looks the same every time.' : 'Scenes are drawn from the sheet and the portrait, so the face and clothes stay the same everywhere.'}
+          </p>
         </Section>
 
         {!el && <Section n={4} title="Voice" done={known}>
