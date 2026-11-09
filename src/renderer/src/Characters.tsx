@@ -119,7 +119,9 @@ export function CharacterBuilder({ id, tasks, usedIn, onClose }: { id: string; t
   const makeOptions = () => act('options', async () => {
     const ids = await makeOne(CHAR_MODEL, { aspect_ratio: shape, resolution: '1K' }, photos,
       `${portraitPrompt(c)}${photos.length ? ` Base the ${el ? c.category === 'place' ? 'place' : 'object' : 'person'} on the reference photo${photos.length > 1 ? 's' : ''}.` : ''}`, count)
-    set({ options: ids, portraitTask: undefined, sheetTask: undefined })
+    // New images go first, next to the earlier ones (failed ones are dropped); the picked image and its angles stay
+    // until you pick another.
+    await updateChar(id, (x) => void (x.options = [...ids, ...(x.options ?? []).filter((o) => stateOf(tasks, o) !== 'fail')]))
   })
   const pick = (taskId: string) => act('sheet', async () => {
     const file = fileOf(tasks, taskId)!
@@ -206,7 +208,7 @@ export function CharacterBuilder({ id, tasks, usedIn, onClose }: { id: string; t
                 const file = fileOf(tasks, o)
                 const st = stateOf(tasks, o)
                 return (
-                  <button key={o} type="button" disabled={!file || !!busy} onClick={() => pick(o)}
+                  <button key={o} type="button" disabled={!file || !!busy} onClick={() => c.portraitTask !== o && pick(o)}
                     style={{ aspectRatio: shape.replace(':', ' / ') }}
                     className={`relative overflow-hidden rounded-xl bg-raised ${c.portraitTask === o ? 'ring-2 ring-fg' : 'hover:opacity-90'}`}>
                     {file ? <img src={mediaUrl({ kind: 'media', file })} alt="Portrait option" className="size-full object-cover" />
@@ -220,8 +222,8 @@ export function CharacterBuilder({ id, tasks, usedIn, onClose }: { id: string; t
           <div className="flex items-center gap-2">
           <button type="button" disabled={!canPortraits || !!busy} onClick={makeOptions}
             className="inline-flex h-9 w-fit items-center gap-2 rounded-full bg-inverse px-4 font-medium text-on-inverse disabled:opacity-35">
-            {busy === 'options' ? <LoaderCircle size={15} className="animate-spin" /> : options.length ? <RotateCcw size={15} /> : <Plus size={15} />}
-            {options.length ? 'New' : 'Make'} {count} {el ? (count > 1 ? 'images' : 'image') : count > 1 ? 'portraits' : 'portrait'} <span className="font-normal opacity-70">({each} each)</span>
+            {busy === 'options' ? <LoaderCircle size={15} className="animate-spin" /> : <Plus size={15} />}
+            Make {count}{options.length ? ' more' : ''} {el ? (count > 1 ? 'images' : 'image') : count > 1 ? 'portraits' : 'portrait'} <span className="font-normal opacity-70">({each} each)</span>
           </button>
           <span className="inline-flex items-center rounded-full border border-line">
             <IconButton title="Fewer" className="size-8" disabled={count <= 1} onClick={() => setCount(count - 1)}><Minus size={14} /></IconButton>
