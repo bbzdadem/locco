@@ -155,24 +155,32 @@ export const elementsOf = (s: Series, all: Character[], scene: Scene) => {
 }
 // A character's references: the reference sheet (if made) and the chosen portrait.
 export const refsOf = (t: Tasks, c: Character) => [fileOf(t, c.sheetTask), fileOf(t, c.portraitTask)].filter((f): f is string => !!f)
-export const ready = (t: Tasks, c: Character) => !!fileOf(t, c.portraitTask)
+const isProduct = (c: Character) => c.category === 'product'
+// The images sent for one character or element: its references, and a product's own photo (the truth for its label and shape).
+export const refImages = (t: Tasks, c: Character): Attachment[] => [...refsOf(t, c).map(img), ...(isProduct(c) && c.photo ? [c.photo] : [])]
+// Ready to be drawn: a portrait is picked, or (a product) there is a photo of it.
+export const ready = (t: Tasks, c: Character) => !!fileOf(t, c.portraitTask) || (isProduct(c) && !!c.photo)
 
 export const portraitPrompt = (c: Character, style = '') =>
-  c.kind === 'element'
+  isProduct(c)
+    ? `Product photo of exactly ${c.photo ? 'the product in the reference photo' : 'this product'} (${c.name}): ${c.look}. Same shape, proportions, colours, materials, logo and label text, letter for letter. The whole product centred on a plain light grey background, soft even light, no added text, no props, no hands.`
+    : c.kind === 'element'
     ? c.category === 'place'
       ? `Reference image of the place ${c.name}: ${c.look}. ${style} Wide establishing view, vertical 9:16, no people, no text.`
       : `Reference image of ${c.name}: ${c.look}. ${style} Shown whole and centred on a plain light grey background, even studio light, no text.`
     :
   `Character portrait for a short film: ${c.name}, ${c.look}. ${style} Head and shoulders, facing the camera, neutral expression, plain light grey background, sharp focus, no text.`
 export const sheetPrompt = (c: Character) =>
-  c.kind === 'element'
+  isProduct(c)
+    ? `Product reference sheet of exactly this product (${c.name}): front, back, side and three-quarter views and a close-up of the label, side by side on a plain light grey background. The same shape, proportions, colours, materials, logo and label text in every view, letter for letter. No added text, no hands.`
+    : c.kind === 'element'
     ? c.category === 'place'
       ? `Three views of exactly this place (${c.name}) side by side: wide establishing, medium, close detail. Same layout, materials, colours and light as the reference image. No people, no text.`
       : `Reference sheet of exactly this ${c.category === 'creature' ? 'creature' : 'object'} (${c.name}): front, side, back and three-quarter views side by side on a plain light grey background. Same shape, materials and colours as the reference image. No text.`
     :
   `Character reference sheet of exactly this person (${c.name}): the same face, hair, skin and clothes as the reference image. Four views side by side on a plain light grey background: front, three-quarter, side profile, full body standing. Even studio light, no text, no labels.`
 // The images sent with a scene: each character's references, then the series' style images.
-export const sceneRefs = (s: Series, people: Character[], t: Tasks) => [...people.flatMap((c) => refsOf(t, c)).map(img), ...(s.styleRefs ?? []).slice(0, 3)]
+export const sceneRefs = (s: Series, people: Character[], t: Tasks) => [...people.flatMap((c) => refImages(t, c)), ...(s.styleRefs ?? []).slice(0, 3)]
 // people here can include elements: characters first, then places and things (each with its own references).
 
 // Joins prompt pieces as sentences: empty parts dropped, exactly one full stop after each.
@@ -186,9 +194,20 @@ const firstBeat = (beats = '') => beats.split(/;|\n/)[0]?.replace(/^\s*\d+(\.\d+
 // performance. (Camera moves and later beats are for the video.)
 export function scenePrompt(s: Series, scene: Scene, people: Character[], t: Tasks) {
   let n = 0
-  const label = (c: Character) => `${c.name} = image${refsOf(t, c).length > 1 ? `s ${++n} and ${++n}` : ` ${++n}`}`
-  const refs = people.filter((c) => !c.kind).map(label).join('; ')
-  const things = people.filter((c) => c.kind).map(label).join('; ')
+  const label = (c: Character) => {
+    const k = refImages(t, c).length
+    const from = n + 1
+    n += k
+    return `${c.name} = image${k > 1 ? `s ${from}–${n}` : ` ${n}`}`
+  }
+  // Numbered in the order sceneRefs sends them; something with no image yet has nothing to point at.
+  const shown = people.filter((c) => refImages(t, c).length)
+  const labels = new Map(shown.map((c) => [c.id, label(c)]))
+  const of = (keep: (c: Character) => boolean) => shown.filter(keep).map((c) => labels.get(c.id)).join('; ')
+  const refs = of((c) => !c.kind)
+  const things = of((c) => !!c.kind && !isProduct(c))
+  const products = of(isProduct)
+  const ad = s.kind === 'ad'
   const styles = (s.styleRefs ?? []).slice(0, 3).length
   const p = scene.plan
   const said = scene.lines.map((l) => `${l.speaker} is speaking`).join(', ')
@@ -201,9 +220,11 @@ export function scenePrompt(s: Series, scene: Scene, people: Character[], t: Tas
     p ? p.shot && `Framing: ${p.shot}` : scene.camera && `Camera: ${scene.camera}`,
     p?.performance,
     said,
-    'A vertical 9:16 still from a short film, cinematic, no text, no captions, no subtitles',
+    ad ? 'A vertical 9:16 frame from real phone footage for TikTok: natural, unpolished, a real place, no text, no captions, no subtitles'
+      : 'A vertical 9:16 still from a short film, cinematic, no text, no captions, no subtitles',
     refs && `Keep each character exactly as in their reference images (${refs}): same face, hair and clothes`,
     things && `Keep each place and thing exactly as in its reference images (${things}): same shape, materials and colours`,
+    products && `The product must match its reference images exactly (${products}): same shape, proportions, colours, logo and label text letter for letter, at a believable real-world size; hands hold it naturally without covering the label`,
     styles > 1 && `Images ${n + 1}–${n + styles} are style references: match their art style, rendering, palette and lighting, not their content`,
     styles === 1 && `Image ${n + 1} is a style reference: match its art style, rendering, palette and lighting, not its content`,
   )
@@ -223,6 +244,7 @@ export function motionPrompt(s: Series, scene: Scene) {
     p?.environment && `Environment in motion: ${p.environment}`,
     talking,
     s.style,
+    s.kind === 'ad' && 'Real handheld phone footage. The product keeps its exact shape, colours and label throughout; hands move simply and naturally',
     'No text, no subtitles, no captions',
   ).slice(0, 1800)
 }

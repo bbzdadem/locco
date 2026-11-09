@@ -1,5 +1,6 @@
 import { ArrowRight, Check, Mic, Coins, Smile, ChevronLeft, ChevronRight, Clapperboard, Download, FileText, Film, ImagePlus, LoaderCircle, Plus, RotateCcw, Square, TriangleAlert, Wand2, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { AD_FORMATS, adShots, adVersions } from '../../shared/ads'
 import { buildInput } from '../../shared/inputs'
 import { chatModel, ELEVEN_VOICES, withBest } from '../../shared/models'
 import { estimate, priceLabel, USD_PER_CREDIT } from '../../shared/prices'
@@ -7,10 +8,10 @@ import { sceneTarget } from '../../shared/timing'
 import type { Character, Episode, Scene, Series, ShotPlan, Step } from '../../shared/types'
 import { Avatar } from './Characters'
 import { Media } from './Create'
-import { episodeProject } from './Studio'
+import { buildEpisodeProject, episodeProject, toProjectRender } from './Studio'
 import { api, errMsg, mediaUrl } from './lib'
 import {
-  castOf, clipFor, clipOf, defaultEdit, editPrompt, elementsOf, fileOf, getSeries, img, IMAGE_MODELS, makeAll, makeOne, model, motionPrompt, needs, ready, refsOf, type Run, scenePrompt,
+  allTasks, castOf, clipFor, clipOf, defaultEdit, editPrompt, elementsOf, fileOf, getSeries, img, IMAGE_MODELS, makeAll, makeOne, model, motionPrompt, needs, ready, refsOf, type Run, scenePrompt,
   sceneRefs, setRun, speaking, stateOf, step, syncKeyOf, syncState, type Tasks, timing, toRender, updateSeries, VIDEO_MODELS, videoValues, voiceFor, voiceName,
 } from './seriesStore'
 import { IconButton, SelectChip } from './ui'
@@ -26,6 +27,9 @@ const secondary = 'inline-flex h-8 items-center gap-1.5 rounded-full border bord
 const sum = (n: number[]) => n.reduce((a, b) => a + b, 0)
 const fmt = (n: number) => `${n.toFixed(1)} s`
 const priceOf = (credits: number) => (credits ? priceLabel({ lo: credits, hi: credits, perSecond: false }) : '')
+// Ads: hooks are A, B, C and the other shots are numbered from 1; a series' shots are numbered in order.
+const tagOf = (scenes: Scene[], sc: Scene) => sc.hook ?? String(scenes.filter((x) => !x.hook).indexOf(sc) + 1)
+const nameOf = (scenes: Scene[], sc: Scene) => (sc.hook ? `Hook ${sc.hook}` : `Scene ${tagOf(scenes, sc)}`)
 
 type Props = { s: Series; ep: Episode; index: number; tasks: Tasks; cast: Character[]; things: Character[]; run?: Run; onCharacter: (id: string) => void; onOpenEdit: (id: string) => void }
 
@@ -44,8 +48,8 @@ export function EpisodeView(props: Props) {
     <div className="flex min-w-0 flex-1 flex-col">
       <div className="flex flex-col gap-2 border-b border-line px-6 pt-1 pb-3">
         <div className="flex items-baseline gap-3">
-          <span className="text-faint tabular-nums">Episode {index + 1}</span>
-          <input aria-label="Episode title" value={ep.title} onChange={(e) => setEp((x) => void (x.title = e.target.value))} className="min-w-0 flex-1 bg-transparent text-lg font-semibold" />
+          <span className="text-faint tabular-nums">{s.kind === 'ad' ? 'Ad' : 'Episode'} {index + 1}</span>
+          <input aria-label={s.kind === 'ad' ? 'Ad title' : 'Episode title'} value={ep.title} onChange={(e) => setEp((x) => void (x.title = e.target.value))} className="min-w-0 flex-1 bg-transparent text-lg font-semibold" />
           <EpisodeCost s={s} ep={ep} t={props.tasks} />
         </div>
         <Summary s={s} ep={ep} index={index} setEp={setEp} />
@@ -74,7 +78,7 @@ export function EpisodeView(props: Props) {
           {shown === 'scenes' && <ScenesStep {...p} />}
           {shown === 'voices' && <VoicesStep {...p} />}
           {shown === 'video' && <VideoStep {...p} />}
-          {shown === 'cut' && <CutStep {...p} />}
+          {shown === 'cut' && (s.kind === 'ad' ? <AdCutStep {...p} /> : <CutStep {...p} />)}
         </div>
       </div>
       {ep.scenes.length > 0 && <Timeline scenes={ep.scenes} selected={shown === 'scenes' ? selected : undefined} onPick={(id) => (setSelected(id), shown !== 'scenes' && reached >= 1 && setView('scenes'))} />}
@@ -108,14 +112,15 @@ function ScriptStep({ s, ep, index, cast, things, run, rk: k, setEp, go }: StepP
   const writer = s.writer ?? WRITERS[0]
   const setScene = (id: string, fn: (sc: Scene) => void) => setEp((e) => fn(e.scenes.find((x) => x.id === id)!))
   const fellBack = (by: string) => (by.split('|')[0] !== writer ? `${writerLabel(writer)} didn't answer${by.includes('|') ? ` (${by.split('|')[1]})` : ''}, so ${writerLabel(by.split('|')[0])} wrote this.` : undefined)
-  const unplanned = ep.scenes.filter((sc) => !sc.plan).length
+  const unplanned = ep.scenes.filter((sc) => !sc.plan?.shot).length
+  const ad = s.kind === 'ad'
   const notes = (...n: (string | undefined)[]) => n.filter(Boolean).join(' ') || undefined
   const missed = (n: number) => (n ? `${n} shot${n > 1 ? 's' : ''} didn't get a plan (the writer didn't answer); press Plan ${n} shot${n > 1 ? 's' : ''} to try again.` : undefined)
   const hasMedia = ep.scenes.some((sc) => sc.frameTask || sc.videoTask || sc.lines.some((l) => l.voiceTask))
 
   const write = () => step(k, `Writers' room: beat sheet and shots (${writerLabel(writer)})…`, async () => {
     const draft = await api.writeScript(getSeries(s.id), index)
-    await setEp((e) => void ((e.scenes = draft.scenes), (e.beats = draft.beats)))
+    await setEp((e) => void ((e.scenes = draft.scenes), (e.beats = draft.beats), (e.format ??= draft.format)))
     setRun(k, { step: `Director: planning ${draft.scenes.length} shots…` })
     const directed = await api.directScript(getSeries(s.id), index, draft.scenes)
     await setEp((e) => e.scenes.forEach((sc, i) => (sc.plan = directed.plans[i] ?? sc.plan)))
@@ -127,11 +132,11 @@ function ScriptStep({ s, ep, index, cast, things, run, rk: k, setEp, go }: StepP
     await setEp((e) => e.scenes.forEach((sc, i) => (sc.plan = out.plans[i] ?? sc.plan)))
     return notes(missed(out.failed), fellBack(out.by))
   })
-  const improve = (sc: Scene, note: string) => step(k, `Improving shot ${ep.scenes.indexOf(sc) + 1}…`, async () => {
+  const improve = (sc: Scene, note: string) => step(k, `Improving ${nameOf(ep.scenes, sc).toLowerCase()}…`, async () => {
     const out = await api.improveScene(getSeries(s.id), index, ep.scenes, ep.scenes.indexOf(sc), note)
     const media = !!(sc.frameTask || sc.videoTask || sc.lines.some((l) => l.voiceTask))
     // A shot that already has pictures or voices keeps its story; only the plan changes.
-    await setScene(sc.id, (x) => Object.assign(x, media ? { plan: out.scene.plan } : { ...out.scene, id: x.id }))
+    await setScene(sc.id, (x) => Object.assign(x, media ? { plan: out.scene.plan } : { ...out.scene, id: x.id, hook: x.hook }))
     return fellBack(out.by)
   })
   const revise = () => step(k, 'Revising the script…', async () => {
@@ -140,19 +145,34 @@ function ScriptStep({ s, ep, index, cast, things, run, rk: k, setEp, go }: StepP
     setChange('')
   })
   const writerChip = (
-    <SelectChip title="Who writes the script" label={<>Writer: {writerLabel(writer)}</>} value={writer} onChange={(v) => void updateSeries(s.id, (x) => void (x.writer = v))}
-      options={WRITERS.map((id) => ({ value: id, label: withBest(writerLabel(id), id) }))} />
+    <>
+      <SelectChip title="Who writes the script" label={<>Writer: {writerLabel(writer)}</>} value={writer} onChange={(v) => void updateSeries(s.id, (x) => void (x.writer = v))}
+        options={WRITERS.map((id) => ({ value: id, label: withBest(writerLabel(id), id) }))} />
+      {ad && (
+        <SelectChip title="The ad's format" label={<>Format: {AD_FORMATS.find((f) => f.id === ep.format)?.name ?? 'writer picks'}</>} value={ep.format ?? ''}
+          onChange={(v) => void setEp((e) => void (e.format = v || undefined))}
+          options={[{ value: '', label: 'Writer picks' }, ...AD_FORMATS.map((f) => ({ value: f.id, label: f.name }))]} />
+      )}
+    </>
   )
 
   if (!ep.scenes.length)
     return (
       <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-line px-6 py-14 text-center">
         <FileText size={22} className="text-muted" />
+        {ad ? (
+          <p className="max-w-lg text-muted">
+            Two passes. The writer plans the ad as a beat sheet (hook, problem, the product working, proof, call to action) and writes three
+            alternative hook shots plus the shots every hook leads into. Then the director plans each shot as phone footage: POV hands, macro,
+            top-down, reaction close-ups, with on-screen text. You approve it before anything is drawn. Takes a minute or two.
+          </p>
+        ) : (
         <p className="max-w-lg text-muted">
           Two passes. The writers' room plans the episode as a beat sheet built for TikTok and Reels (hook in 2 seconds, a turn every few seconds, a payoff)
           and writes it as shots of 2–4 seconds. Then the director plans every shot (framing, lens, action over time, performance, camera move, light,
           weather, sound) and reviews the whole against a checklist. You approve it before anything is drawn. Takes a minute or two.
         </p>
+        )}
         <div className="flex items-center gap-2">
           {writerChip}
           <button type="button" disabled={busy(run)} onClick={write} className={primary}>
@@ -181,7 +201,7 @@ function ScriptStep({ s, ep, index, cast, things, run, rk: k, setEp, go }: StepP
       )}
       <div className="flex flex-col gap-3">
         {ep.scenes.map((sc, i) => (
-          <ShotCard key={sc.id} n={i + 1} sc={sc} names={names} onScreen={[...castOf(s, cast, sc), ...elementsOf(s, things, sc)].map((c) => c.name)}
+          <ShotCard key={sc.id} n={tagOf(ep.scenes, sc)} first={i === 0} sc={sc} names={names} onScreen={[...castOf(s, cast, sc), ...elementsOf(s, things, sc)].map((c) => c.name)}
             busy={busy(run)} setScene={(fn) => setScene(sc.id, fn)} onImprove={(note) => improve(sc, note)}
             onRemove={() => setEp((e) => void (e.scenes = e.scenes.filter((x) => x.id !== sc.id)))} />
         ))}
@@ -197,7 +217,7 @@ function ScriptStep({ s, ep, index, cast, things, run, rk: k, setEp, go }: StepP
         ) : (
           <>
             <input aria-label="Change to the script" value={change} onChange={(e) => setChange(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && change.trim() && !busy(run) && revise()}
-              placeholder="Ask for a change: make Lala the one who breaks the machine" className="h-9 min-w-60 flex-1 rounded-full border border-line bg-transparent px-4 text-[13px] focus:border-fg" />
+              placeholder={ad ? 'Ask for a change: show it on a gym bag, make the hooks funnier' : 'Ask for a change: make Lala the one who breaks the machine'} className="h-9 min-w-60 flex-1 rounded-full border border-line bg-transparent px-4 text-[13px] focus:border-fg" />
             <button type="button" disabled={!change.trim() || busy(run)} onClick={revise} className={secondary}><Wand2 size={13} /> Revise</button>
           </>
         )}
@@ -210,19 +230,23 @@ function ScriptStep({ s, ep, index, cast, things, run, rk: k, setEp, go }: StepP
 }
 
 // One shot: place, action and lines, then its plan (open to edit), with Improve.
-function ShotCard({ n, sc, names, onScreen, busy: working, setScene, onImprove, onRemove }: {
-  n: number; sc: Scene; names: string[]; onScreen: string[]; busy: boolean
+function ShotCard({ n, first, sc, names, onScreen, busy: working, setScene, onImprove, onRemove }: {
+  n: string; first: boolean; sc: Scene; names: string[]; onScreen: string[]; busy: boolean
   setScene: (fn: (sc: Scene) => void) => void; onImprove: (note: string) => void; onRemove: () => void
 }) {
   const [note, setNote] = useState('')
   const p = sc.plan
   return (
     <div className="flex gap-3 rounded-2xl border border-line bg-surface p-3">
-      <span className="w-6 shrink-0 pt-1.5 text-right text-faint tabular-nums">{n}</span>
+      {sc.hook ? (
+        <span title="An alternative opening: each version of the ad starts with one hook" className="flex w-8 shrink-0 flex-col items-end pt-1 leading-tight">
+          <span className="text-[10px] text-faint uppercase">Hook</span><span className="font-medium">{sc.hook}</span>
+        </span>
+      ) : <span className="w-8 shrink-0 pt-1.5 text-right text-faint tabular-nums">{n}</span>}
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <div className="flex gap-2">
           <input aria-label={`Shot ${n} place`} value={sc.place} placeholder="Place and time: lighthouse kitchen, night" onChange={(e) => setScene((x) => void (x.place = e.target.value))} className={`${field} font-medium`} />
-          {!p && <input aria-label={`Shot ${n} camera`} value={sc.camera} placeholder="Camera: close-up, slow push-in" onChange={(e) => setScene((x) => void (x.camera = e.target.value))} className={`${field} max-w-60`} />}
+          {!p?.shot && <input aria-label={`Shot ${n} camera`} value={sc.camera} placeholder="Camera: close-up, slow push-in" onChange={(e) => setScene((x) => void (x.camera = e.target.value))} className={`${field} max-w-60`} />}
         </div>
         <textarea aria-label={`Shot ${n} action`} rows={2} value={sc.action} placeholder="What happens in this shot. Name characters with @: @Mochi raises the dripping keys." onChange={(e) => setScene((x) => void (x.action = e.target.value))} className={`${field} resize-none`} />
         {sc.lines.map((l, li) => (
@@ -238,10 +262,10 @@ function ShotCard({ n, sc, names, onScreen, busy: working, setScene, onImprove, 
           {sc.lines.length < 3 && <button type="button" onClick={() => setScene((x) => void x.lines.push({ speaker: names[0], text: '' }))} className="text-[13px] text-muted hover:text-fg">+ Line</button>}
           <span className="text-xs text-faint">On screen: {onScreen.join(', ') || 'nobody from the cast (name one with @)'}</span>
         </div>
-        <details className="rounded-xl bg-raised/60 px-3 py-2" open={!!p && n === 1}>
+        <details className="rounded-xl bg-raised/60 px-3 py-2" open={!!p?.shot && first}>
           <summary className="cursor-pointer text-[13px] select-none">
             <span className="font-medium">Shot plan</span>
-            <span className="ml-2 text-xs text-muted">{p ? [p.shot, p.move].filter(Boolean).join(' · ').slice(0, 110) : 'Not planned yet: Improve plans it'}</span>
+            <span className="ml-2 text-xs text-muted">{p?.shot ? [p.shot, p.move].filter(Boolean).join(' · ').slice(0, 110) : `Not planned yet: Improve plans it${p?.text ? ` · text “${p.text}”` : ''}`}</span>
           </summary>
           <div className="mt-2 grid grid-cols-[8rem_1fr] items-start gap-x-3 gap-y-1.5">
             {PLAN_FIELDS.map(([key, label, hint]) => (
@@ -315,16 +339,16 @@ function ScenesStep({ s, ep, tasks, cast, things, run, rk: k, setEp, go, selecte
           return (
             <button key={x.id} type="button" onClick={() => setSelected(x.id)}
               className={`relative aspect-[9/16] overflow-hidden rounded-xl bg-raised ${x.id === sc?.id ? 'ring-2 ring-fg' : ''}`}>
-              {f && <img src={mediaUrl({ kind: 'media', file: f })} alt={`Scene ${i + 1}`} className="size-full object-cover" />}
+              {f && <img src={mediaUrl({ kind: 'media', file: f })} alt={nameOf(ep.scenes, x)} className="size-full object-cover" />}
               {st === 'busy' && <span className="absolute inset-0 flex items-center justify-center bg-black/30 text-white"><LoaderCircle size={16} className="animate-spin" /></span>}
               {st === 'fail' && <span className="absolute inset-0 flex items-center justify-center p-2 text-[11px] text-danger">Failed</span>}
-              <span className="absolute top-1 left-1 rounded bg-black/60 px-1.5 text-[11px] leading-5 text-white tabular-nums">{i + 1}</span>
+              <span className="absolute top-1 left-1 rounded bg-black/60 px-1.5 text-[11px] leading-5 text-white tabular-nums">{tagOf(ep.scenes, x)}</span>
               {x.approved && f && <span className="absolute top-1 right-1 flex size-5 items-center justify-center rounded-full bg-inverse text-on-inverse"><Check size={12} /></span>}
             </button>
           )
         })}
       </div>
-      {sc && <SceneDetail s={s} sc={sc} n={ep.scenes.indexOf(sc) + 1} tasks={tasks} run={run} refs={refs(sc)} people={people(sc)} k={k} setScene={setScene} draw={draw} />}
+      {sc && <SceneDetail s={s} sc={sc} name={nameOf(ep.scenes, sc)} tasks={tasks} run={run} refs={refs(sc)} people={people(sc)} k={k} setScene={setScene} draw={draw} />}
       <div className="flex items-center justify-end gap-2">
         {!allDone && ep.scenes.every((x) => fileOf(tasks, x.frameTask)) && (
           <button type="button" className={secondary} onClick={() => setEp((e) => e.scenes.forEach((x) => (x.approved = true)))}><Check size={13} /> Approve all</button>
@@ -338,8 +362,8 @@ function ScenesStep({ s, ep, tasks, cast, things, run, rk: k, setEp, go, selecte
   )
 }
 
-function SceneDetail({ s, sc, n, tasks, run, refs, people, k, setScene, draw }: {
-  s: Series; sc: Scene; n: number; tasks: Tasks; run?: Run; refs: ReturnType<typeof img>[]; people: Character[]; k: string
+function SceneDetail({ s, sc, name, tasks, run, refs, people, k, setScene, draw }: {
+  s: Series; sc: Scene; name: string; tasks: Tasks; run?: Run; refs: ReturnType<typeof img>[]; people: Character[]; k: string
   setScene: (id: string, fn: (sc: Scene) => void) => Promise<void>; draw: (sc: Scene) => Promise<string>
 }) {
   const [change, setChange] = useState('')
@@ -349,10 +373,10 @@ function SceneDetail({ s, sc, n, tasks, run, refs, people, k, setScene, draw }: 
   const file = fileOf(tasks, all[at])
   const current = fileOf(tasks, sc.frameTask)
   const replace = (id: string) => setScene(sc.id, (x) => Object.assign(x, { versions: [...(x.versions ?? []), ...(x.frameTask ? [x.frameTask] : [])], frameTask: id, approved: false, videoTask: undefined }))
-  const edit = () => step(k, `Changing scene ${n}…`, () => makeAll(k, `Changing scene ${n}…`, 'scene images', [sc],
+  const edit = () => step(k, `Changing ${name.toLowerCase()}…`, () => makeAll(k, `Changing ${name.toLowerCase()}…`, 'scene images', [sc],
     () => makeOne(s.imageModel, SCENE_IMAGE, [img(current!), ...refs], editPrompt(change)).then((ids) => ids[0]),
     async ([[, id]]) => (await replace(id), setVi(null), setChange(''))))
-  const redraw = () => step(k, `Redrawing scene ${n}…`, () => makeAll(k, `Redrawing scene ${n}…`, 'scene images', [sc], draw, async ([[, id]]) => (await replace(id), setVi(null))))
+  const redraw = () => step(k, `Redrawing ${name.toLowerCase()}…`, () => makeAll(k, `Redrawing ${name.toLowerCase()}…`, 'scene images', [sc], draw, async ([[, id]]) => (await replace(id), setVi(null))))
   const useVersion = () => setScene(sc.id, (x) => {
     const pick = all[at]
     Object.assign(x, { versions: all.filter((v) => v !== pick), frameTask: pick, approved: false, videoTask: undefined })
@@ -362,7 +386,7 @@ function SceneDetail({ s, sc, n, tasks, run, refs, people, k, setScene, draw }: 
     <div className="flex gap-4 rounded-2xl border border-line bg-surface p-3">
       <div className="relative w-56 shrink-0">
         <div className="aspect-[9/16] overflow-hidden rounded-xl bg-raised">
-          {file ? <img src={mediaUrl({ kind: 'media', file })} alt={`Scene ${n}`} className="size-full object-cover" />
+          {file ? <img src={mediaUrl({ kind: 'media', file })} alt={name} className="size-full object-cover" />
             : <span className="flex size-full items-center justify-center text-muted">{stateOf(tasks, all[at]) === 'busy' ? <LoaderCircle size={18} className="animate-spin" /> : <ImagePlus size={20} />}</span>}
         </div>
         {all.length > 1 && (
@@ -375,7 +399,7 @@ function SceneDetail({ s, sc, n, tasks, run, refs, people, k, setScene, draw }: 
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-2 text-[13px]">
         <div className="flex items-center gap-2">
-          <span className="font-medium">Scene {n}</span>
+          <span className="font-medium">{name}</span>
           <span className="truncate text-muted">{sc.place}</span>
           <span className="ml-auto flex -space-x-1.5">{people.map((c) => <Avatar key={c.id} c={c} t={tasks} size="size-6" />)}</span>
         </div>
@@ -453,7 +477,7 @@ function VoicesStep({ s, ep, tasks, cast, run, rk: k, setEp, go }: StepProps) {
               </div>
             </div>
             <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-              <span className="text-muted">Scene {i + 1} · {fmt(timing(sc).seconds)}{!sc.lines.length && ' · no dialogue'}</span>
+              <span className="text-muted">{nameOf(ep.scenes, sc)} · {fmt(timing(sc).seconds)}{!sc.lines.length && ' · no dialogue'}</span>
               {sc.lines.map((l, li) => {
                 const f = fileOf(tasks, l.voiceTask)
                 return (
@@ -494,7 +518,7 @@ function VoicesStep({ s, ep, tasks, cast, run, rk: k, setEp, go }: StepProps) {
 function costOf(s: Series, ep: Episode, t: Tasks) {
   const im = model(s.imageModel)
   const vm = model(s.videoModel)
-  const n = ep.scenes.length || sceneTarget(s.seconds)
+  const n = ep.scenes.length || (s.kind === 'ad' ? adShots(s.seconds) + 3 : sceneTarget(s.seconds))
   const shots = ep.scenes.length ? ep.scenes.map((sc) => ({ sc, seconds: timing(sc).seconds })) : Array.from({ length: n }, () => ({ sc: undefined, seconds: s.seconds / n }))
   const image = estimate(im.id, buildInput(im, SCENE_IMAGE, {}).input)?.hi ?? 0
   const video = (sec: number) => estimate(vm.id, buildInput(vm, videoValues(vm, sec, !!s.videoSound), {}).input)?.hi ?? 0
@@ -527,7 +551,7 @@ function EpisodeCost({ s, ep, t }: { s: Series; ep: Episode; t: Tasks }) {
       </button>
       {open && (
         <div className="absolute top-9 right-0 z-30 w-72 rounded-xl border border-line bg-surface p-3 text-[12px] shadow-lg">
-          <p className="mb-2 font-medium text-fg">To finish this episode{c.guess && ' (estimated from the series length)'}</p>
+          <p className="mb-2 font-medium text-fg">To finish this {s.kind === 'ad' ? 'ad (all three hooks)' : 'episode'}{c.guess && ` (estimated from the ${s.kind === 'ad' ? 'ad' : 'series'} length)`}</p>
           {c.left.map(([label, n]) => (
             <div key={label} className="flex justify-between py-0.5"><span className="text-muted">{label}</span><span className="tabular-nums">{n ? `${usd(n)} · ${Math.round(n)} cr` : 'done'}</span></div>
           ))}
@@ -597,9 +621,9 @@ function VideoStep({ s, ep, tasks, run, rk: k, setEp, go }: StepProps) {
           return (
             <div key={sc.id} className="flex flex-col gap-1">
               <div className="relative aspect-[9/16] overflow-hidden rounded-xl bg-raised">
-                {v ? <Media file={v} alt={`Scene ${i + 1}`} className="size-full object-cover" /> : f && <img src={mediaUrl({ kind: 'media', file: f })} alt="" className="size-full object-cover opacity-60" />}
+                {v ? <Media file={v} alt={nameOf(ep.scenes, sc)} className="size-full object-cover" /> : f && <img src={mediaUrl({ kind: 'media', file: f })} alt="" className="size-full object-cover opacity-60" />}
                 {(st === 'busy' || lips === 'busy') && <span className="absolute inset-0 flex items-center justify-center text-white"><LoaderCircle size={18} className="animate-spin" /></span>}
-                <span className="absolute top-1 left-1 rounded bg-black/60 px-1.5 text-[11px] leading-5 text-white tabular-nums">{i + 1}</span>
+                <span className="absolute top-1 left-1 rounded bg-black/60 px-1.5 text-[11px] leading-5 text-white tabular-nums">{tagOf(ep.scenes, sc)}</span>
                 {lips && lips !== 'none' && (
                   <span title={lips === 'fail' ? `Lip sync failed: ${tasks[sc.syncTask!]?.error ?? ''}` : lips === 'busy' ? 'Lip-syncing…' : 'Lip-synced to the voices'}
                     className={`absolute top-1 right-1 rounded bg-black/60 px-1.5 text-[11px] leading-5 ${lips === 'fail' ? 'text-danger' : 'text-white'}`}>
@@ -705,6 +729,79 @@ function CutStep({ s, ep, index, tasks, run, rk: k, setEp, onEdit }: StepProps) 
   )
 }
 
+// --- 5. Cut (ads): one video per hook, each with the shots after it, its on-screen text and captions burned in.
+// Music is off by default: a trending sound is usually added in TikTok or Instagram instead. ---
+
+function AdCutStep({ s, ep, tasks, run, rk: k, setEp, onEdit }: StepProps) {
+  const music = ep.music !== false
+  const versions = adVersions(ep)
+  const length = sum(versions[0].scenes.map((sc) => timing(sc).seconds))
+  const make = () => step(k, 'Making the ad…', async () => {
+    if (music && needs(tasks, ep.musicTask))
+      await makeAll(k, 'Making the music…', 'music tracks', [ep],
+        () => makeOne('suno', { custom_mode: false, instrumental: true }, [], `Light, catchy instrumental background for a short product video on TikTok. ${s.logline}`.slice(0, 450)).then((ids) => ids[0]),
+        async ([[, id]]) => setEp((e) => void (e.musicTask = id)))
+    const t = await allTasks()
+    const latest = getSeries(s.id).episodes.find((e) => e.id === ep.id)!
+    const all = adVersions(latest)
+    const files: string[] = []
+    for (const [i, v] of all.entries()) {
+      setRun(k, { step: all.length > 1 ? `Rendering version ${i + 1} of ${all.length}…` : 'Rendering…' })
+      files.push(await api.renderEdit(await toProjectRender(await buildEpisodeProject(getSeries(s.id), latest, t, v.scenes))))
+    }
+    await setEp((e) => {
+      if (e.cut) e.cuts = [...(e.cuts ?? []), e.cut]
+      e.adCuts = files
+      e.cut = files[0]
+    })
+    return files.length > 1 ? `Done: ${files.length} versions, one per hook. Post them a day or two apart and keep the hook that holds viewers longest.` : 'Done.'
+  })
+  // The versions made here, and the editor's export if it's newer than them.
+  const made = [...(ep.adCuts ?? []), ...(ep.cut && !ep.adCuts?.includes(ep.cut) ? [ep.cut] : [])]
+
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" aria-pressed={music} onClick={() => void setEp((e) => void (e.music = !music))}
+          title="Off: add a trending sound when you post. On: an instrumental is made and laid under the ad."
+          className={`h-8 rounded-full border px-3 text-[13px] ${music ? 'border-fg bg-raised' : 'border-line text-muted hover:bg-raised'}`}>
+          Music: {music ? 'on' : 'off'}
+        </button>
+        <span className="text-[13px] text-muted">
+          {versions.length} version{versions.length > 1 ? 's' : ''} · ≈ {fmt(length)} each · text and captions burned in
+        </span>
+        <button type="button" disabled={busy(run) || !ep.scenes.some((sc) => fileOf(tasks, sc.videoTask))} onClick={onEdit}
+          title="Open the first version (hook A) in the editor: trim, reorder, change the text, export."
+          className="ml-auto inline-flex h-9 items-center gap-2 rounded-full border border-line px-4 hover:bg-raised disabled:opacity-40">
+          <Film size={15} /> Open in editor
+        </button>
+        <button type="button" disabled={busy(run)} onClick={make} className={primary}>
+          <Clapperboard size={15} /> {ep.adCuts?.length ? 'Make again' : `Make ${versions.length} version${versions.length > 1 ? 's' : ''}`}
+          {music && needs(tasks, ep.musicTask) && <span className="font-normal opacity-70">{priceLabel(estimate('suno', {}))}</span>}
+        </button>
+      </div>
+      {made.length > 0 && (
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
+          {made.map((f, i) => {
+            const v = i < (ep.adCuts?.length ?? 0) ? versions[i] : undefined
+            return (
+              <div key={f} className="flex flex-col gap-2">
+                <video src={mediaUrl({ kind: 'media', file: f })} controls playsInline className="aspect-[9/16] w-full rounded-xl bg-black" />
+                <div className="flex items-center gap-2 text-[13px]">
+                  <span className="min-w-0 flex-1 truncate" title={v?.scenes[0].plan?.text}>
+                    {v?.hook ? <><span className="font-medium">Hook {v.hook}</span>{v.scenes[0].plan?.text && <span className="text-muted"> · “{v.scenes[0].plan.text}”</span>}</> : v ? 'The ad' : 'From the editor'}
+                  </span>
+                  <button type="button" onClick={() => api.saveAs({ kind: 'media', file: f })} className={secondary}><Download size={13} /> Save</button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </>
+  )
+}
+
 // Every scene as a block as long as it runs; click one to open it.
 function Timeline({ scenes, selected, onPick }: { scenes: Scene[]; selected?: string; onPick: (id: string) => void }) {
   return (
@@ -712,9 +809,9 @@ function Timeline({ scenes, selected, onPick }: { scenes: Scene[]; selected?: st
       {scenes.map((sc, i) => {
         const t = timing(sc).seconds
         return (
-          <button key={sc.id} type="button" onClick={() => onPick(sc.id)} style={{ flex: t }} title={`Scene ${i + 1}: ${fmt(t)}`}
+          <button key={sc.id} type="button" onClick={() => onPick(sc.id)} style={{ flex: t }} title={`${nameOf(scenes, sc)}: ${fmt(t)}`}
             className={`h-7 min-w-0 truncate rounded-md px-1.5 text-left text-[11px] tabular-nums ${sc.id === selected ? 'bg-inverse text-on-inverse' : 'bg-raised text-muted hover:text-fg'}`}>
-            {i + 1} · {t.toFixed(1)}s
+            {tagOf(scenes, sc)} · {t.toFixed(1)}s
           </button>
         )
       })}
@@ -752,7 +849,8 @@ function Summary({ s, ep, index, setEp }: { s: Series; ep: Episode; index: numbe
   }
   return (
     <div className="relative">
-      <textarea ref={area} aria-label="Episode summary" value={ep.summary} placeholder="What happens: the hook, the turn, the punchline. A line is enough; Improve fills it out."
+      <textarea ref={area} aria-label="Episode summary" value={ep.summary}
+        placeholder={s.kind === 'ad' ? 'The angle: the hook, the moment the product works, the call to action. A line is enough; Improve fills it out.' : 'What happens: the hook, the turn, the punchline. A line is enough; Improve fills it out.'}
         onChange={(e) => (setBefore(null), void setEp((x) => void (x.summary = e.target.value)))} className={`${field} resize-none pr-28 pb-8`} />
       <div className="absolute right-2 bottom-2 flex items-center gap-1.5">
         {before !== null && !busy && (

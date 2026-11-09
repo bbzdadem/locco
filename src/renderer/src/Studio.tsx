@@ -5,7 +5,8 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { itemLength, layout, MAIN, splitAt, videoEnd } from '../../shared/timeline'
 import { timing } from '../../shared/timing'
-import type { Aspect, Attachment, EditProject, Episode, Item, Ref, Series, Task, Track } from '../../shared/types'
+import { adVersions } from '../../shared/ads'
+import type { Aspect, Attachment, EditProject, Episode, Item, ProjectRender, Ref, Series, Task, Track } from '../../shared/types'
 import { isAudio, isVideo } from './Create'
 import { api, errMsg, mediaUrl, toAttachments } from './lib'
 import { Player } from './Player'
@@ -34,13 +35,25 @@ const newProject = (title: string, aspect: Aspect): EditProject =>
 export async function episodeProject(s: Series, ep: Episode, t: Tasks): Promise<string> {
   const found = (await api.edits()).find((p) => p.episode?.series === s.id && p.episode.episode === ep.id)
   if (found) return found.id
+  // An ad opens as its first version (hook A and the body).
+  const p = await buildEpisodeProject(s, ep, t, adVersions(ep)[0].scenes)
+  await api.saveEdit(p)
+  return p.id
+}
+
+// The given shots of an episode as an editor project (not saved): clips, the director's on-screen text, voices, music.
+// Ads keep each shot's text for the whole shot and caption every line, since most people watch them on mute.
+export async function buildEpisodeProject(s: Series, ep: Episode, t: Tasks, scenes = ep.scenes): Promise<EditProject> {
+  const ad = s.kind === 'ad'
   const p = newProject(`${s.title} · ${ep.title}`, '9:16')
   const voices: Track = { id: crypto.randomUUID(), kind: 'audio', name: 'Voices' }
   const music: Track = { id: crypto.randomUUID(), kind: 'audio', name: 'Music' }
   p.tracks = [p.tracks[0], p.tracks[1], voices, music]
   p.episode = { series: s.id, episode: ep.id }
+  const captions: Track = { id: crypto.randomUUID(), kind: 'text', name: 'Captions' }
+  if (ad) p.tracks.splice(2, 0, captions)
   let at = 0
-  for (const [i, sc] of ep.scenes.entries()) {
+  for (const [i, sc] of scenes.entries()) {
     const file = clipOf(t, sc)
     const tm = timing(sc)
     if (!file) continue // a scene without video yet is left out, with its lines
@@ -53,11 +66,14 @@ export async function episodeProject(s: Series, ep: Episode, t: Tasks): Promise<
     // The director's on-screen text (usually the hook) goes on the text track at the start of its shot.
     if (sc.plan?.text?.trim())
       p.items.push({ id: crypto.randomUUID(), track: p.tracks[1].id, start: +at.toFixed(3), label: 'Text', text: sc.plan.text.trim(), style: 'title', position: 'top',
-        duration: +Math.min(tm.seconds, 2.5).toFixed(3) })
+        duration: +(ad ? tm.seconds : Math.min(tm.seconds, 2.5)).toFixed(3) })
     sc.lines.forEach((l, li) => {
       const vf = fileOf(t, l.voiceTask)
-      if (vf) p.items.push({ id: crypto.randomUUID(), track: voices.id, start: +(at + tm.voices[li]).toFixed(3), label: `${l.speaker}: ${l.text}`, ref: { kind: 'media', file: vf },
+      if (!vf) return
+      p.items.push({ id: crypto.randomUUID(), track: voices.id, start: +(at + tm.voices[li]).toFixed(3), label: `${l.speaker}: ${l.text}`, ref: { kind: 'media', file: vf },
         media: 'audio', source: l.seconds, in: 0, out: l.seconds ?? 2, volume: 1 })
+      if (ad) p.items.push({ id: crypto.randomUUID(), track: captions.id, start: +(at + tm.voices[li]).toFixed(3), label: 'Caption', text: l.text, style: 'caption', position: 'bottom',
+        duration: +(l.seconds ?? 2).toFixed(3) })
     })
     at += tm.seconds
   }
@@ -66,8 +82,26 @@ export async function episodeProject(s: Series, ep: Episode, t: Tasks): Promise<
     const len = await api.mediaSeconds(mf)
     p.items.push({ id: crypto.randomUUID(), track: music.id, start: 0, label: 'Music', ref: { kind: 'media', file: mf }, media: 'audio', source: len, in: 0, out: +Math.min(len, at).toFixed(3), volume: 0.16, fadeOut: 1.5 })
   }
-  await api.saveEdit(layout(p))
-  return p.id
+  return layout(p)
+}
+
+// A project as ffmpeg gets it: text drawn to full-frame PNGs, muted tracks left out.
+export async function toProjectRender(p: EditProject): Promise<ProjectRender> {
+  const textTracks = new Set(p.tracks.filter((t) => t.kind === 'text').map((t) => t.id))
+  const muted = new Set(p.tracks.filter((t) => t.muted).map((t) => t.id))
+  const texts = await Promise.all(p.items.filter((it) => textTracks.has(it.track) && it.text?.trim()).map(async (it) => ({
+    ref: await api.saveFile(`text-${it.id}.png`, 'image/png', pngBytes(textImage(it, p.aspect))), start: it.start, length: itemLength(it),
+  })))
+  return {
+    name: p.title, aspect: p.aspect, texts,
+    main: p.items.filter((it) => it.track === MAIN && it.ref).map((it) => ({
+      ref: it.ref!, media: it.media === 'image' ? 'image' : 'video', in: it.in ?? 0, out: it.out ?? 0, length: itemLength(it), speed: it.speed ?? 1,
+      pan: it.pan ?? 0, zoom: it.zoom ?? 1, sound: !!it.sound && !muted.has(it.track), volume: it.volume ?? 1,
+    })),
+    audio: p.items.filter((it) => it.media === 'audio' && it.ref && !muted.has(it.track)).map((it) => ({
+      ref: it.ref!, start: it.start, in: it.in ?? 0, out: it.out ?? 0, volume: it.volume ?? 1, fadeIn: it.fadeIn ?? 0, fadeOut: it.fadeOut ?? 0,
+    })),
+  }
 }
 
 export function StudioView({ header, openId, onOpen }: { header: HeaderProps; openId?: string; onOpen: (id?: string) => void }) {
@@ -261,21 +295,7 @@ function ProjectEditor({ initial, onBack }: { initial: EditProject; onBack: () =
     setError('')
     setPlaying(false)
     try {
-      const textTracks = new Set(p.tracks.filter((t) => t.kind === 'text').map((t) => t.id))
-      const muted = new Set(p.tracks.filter((t) => t.muted).map((t) => t.id))
-      const texts = await Promise.all(p.items.filter((it) => textTracks.has(it.track) && it.text?.trim()).map(async (it) => ({
-        ref: await api.saveFile(`text-${it.id}.png`, 'image/png', pngBytes(textImage(it, p.aspect))), start: it.start, length: itemLength(it),
-      })))
-      const file = await api.renderEdit({
-        name: p.title, aspect: p.aspect, texts,
-        main: p.items.filter((it) => it.track === MAIN && it.ref).map((it) => ({
-          ref: it.ref!, media: it.media === 'image' ? 'image' : 'video', in: it.in ?? 0, out: it.out ?? 0, length: itemLength(it), speed: it.speed ?? 1,
-          pan: it.pan ?? 0, zoom: it.zoom ?? 1, sound: !!it.sound && !muted.has(it.track), volume: it.volume ?? 1,
-        })),
-        audio: p.items.filter((it) => it.media === 'audio' && it.ref && !muted.has(it.track)).map((it) => ({
-          ref: it.ref!, start: it.start, in: it.in ?? 0, out: it.out ?? 0, volume: it.volume ?? 1, fadeIn: it.fadeIn ?? 0, fadeOut: it.fadeOut ?? 0,
-        })),
-      })
+      const file = await api.renderEdit(await toProjectRender(p))
       change((x) => void x.exports.push(file), false)
       // An episode's edit becomes the episode's cut (the earlier cut is kept in its list).
       if (p.episode) {

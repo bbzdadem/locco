@@ -9,16 +9,18 @@ import { IconButton, SelectChip } from './ui'
 import { VoiceTools } from './Voices'
 
 const CHAR_MODEL = 'gpt-image-2'
-const CATEGORY: Record<NonNullable<Character['category']>, string> = { place: 'Place', prop: 'Prop', creature: 'Creature', other: 'Other' }
+const CATEGORY: Record<NonNullable<Character['category']>, string> = { place: 'Place', prop: 'Prop', creature: 'Creature', product: 'Product', other: 'Other' }
 // Sizes are set where a field is used: full width alone, or a fixed size next to other fields.
 const box = 'rounded-lg border border-line bg-bg px-2.5 py-1.5 text-[13px] leading-relaxed focus:border-fg'
 const field = `${box} w-full`
 
 export function Avatar({ c, t, size = 'size-12' }: { c?: Character; t: Tasks; size?: string }) {
   const file = fileOf(t, c?.portraitTask)
+  // A product with no image picked yet shows its photo.
+  const photo = !file && c?.category === 'product' ? c.photo : undefined
   return (
     <span className={`${size} flex shrink-0 items-center justify-center overflow-hidden bg-raised text-muted ${c?.kind ? 'rounded-lg' : 'rounded-full'}`}>
-      {file ? <img src={mediaUrl({ kind: 'media', file })} alt={c?.name} className="size-full object-cover" /> : c?.kind ? <Box size={16} /> : <UserRound size={18} />}
+      {file || photo ? <img src={mediaUrl(photo ?? { kind: 'media', file: file! })} alt={c?.name} className="size-full object-cover" /> : c?.kind ? <Box size={16} /> : <UserRound size={18} />}
     </span>
   )
 }
@@ -33,7 +35,7 @@ export function CharacterLibrary({ characters, series, tasks, onOpen, elements }
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-4 px-6 pt-6 pb-16">
       <p className="text-muted">{elements
-        ? 'Elements are the places, props and creatures that come back across episodes: the lighthouse, the brass keys, the seagull. Saved here, they look the same in every scene that names them.'
+        ? 'Elements are the places, props, creatures and products that come back across episodes and ads: the lighthouse, the brass keys, your product. Saved here, they look the same in every scene that names them.'
         : 'Characters are saved here and keep the same face, clothes and voice in every series. Mention one in a scene as @Name.'}</p>
       <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3">
         <button type="button" onClick={create} className="flex aspect-[3/4] flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-line text-muted hover:border-fg hover:text-fg">
@@ -42,10 +44,11 @@ export function CharacterLibrary({ characters, series, tasks, onOpen, elements }
         {characters.map((c) => {
           const used = series.filter((s) => s.cast.includes(c.id) || s.elements?.includes(c.id)).length
           const file = fileOf(tasks, c.portraitTask)
+          const pic = file ? { kind: 'media' as const, file } : c.category === 'product' ? c.photo : undefined
           return (
             <button key={c.id} type="button" onClick={() => onOpen(c.id)} className="flex flex-col overflow-hidden rounded-2xl border border-line bg-surface text-left hover:border-faint">
               <span className="flex aspect-square items-center justify-center bg-raised text-muted">
-                {file ? <img src={mediaUrl({ kind: 'media', file })} alt={c.name} className="size-full object-cover" /> : <UserRound size={28} />}
+                {pic ? <img src={mediaUrl(pic)} alt={c.name} className="size-full object-cover" /> : <UserRound size={28} />}
               </span>
               <span className="flex flex-col px-3 py-2">
                 <span className="truncate font-medium">{c.name || 'Unnamed'}</span>

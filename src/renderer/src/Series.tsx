@@ -1,17 +1,19 @@
-import { ArrowLeft, Check, Film, ImagePlus, LoaderCircle, Plus, Trash2, Undo2, X } from 'lucide-react'
+import { ArrowLeft, Check, Film, ImagePlus, LoaderCircle, Megaphone, Plus, Trash2, Undo2, X } from 'lucide-react'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { Attachment, Character, Episode, Series } from '../../shared/types'
 import { Avatar, CharacterBuilder, CharacterLibrary } from './Characters'
 import { EpisodeView } from './Episode'
 import { ACCEPT_IMAGES, api, errMsg, mediaUrl, toAttachments } from './lib'
-import { getSnapshot, loadAll, ready, type Run, saveChar, STYLE_PRESETS, subscribe, type Tasks, updateSeries, voiceName } from './seriesStore'
+import { fileOf, getSnapshot, loadAll, ready, type Run, saveChar, STYLE_PRESETS, subscribe, type Tasks, updateSeries, voiceName } from './seriesStore'
 import { Header, IconButton, SelectChip } from './ui'
 
 type HeaderProps = { collapsed: boolean; onExpand: () => void }
 const field = 'w-full rounded-lg border border-line bg-bg px-2.5 py-1.5 text-[13px] leading-relaxed focus:border-fg'
 
-export function SeriesView({ header, onChanged, onOpenEdit }: { header: HeaderProps; onChanged: () => void; onOpenEdit: (id: string) => void }) {
-  const { series: list, characters, runs } = useSyncExternalStore(subscribe, getSnapshot)
+// Series and Ads share this screen: ads are series of kind 'ad' (a product, its brief, and its ads as episodes).
+export function SeriesView({ header, onChanged, onOpenEdit, ads = false }: { header: HeaderProps; onChanged: () => void; onOpenEdit: (id: string) => void; ads?: boolean }) {
+  const { series: all, characters, runs } = useSyncExternalStore(subscribe, getSnapshot)
+  const list = all.filter((s) => (s.kind === 'ad') === ads)
   const [tab, setTab] = useState<'series' | 'characters' | 'elements'>('series')
   const [openId, setOpenId] = useState<string | null>(null)
   const [charId, setCharId] = useState<string | null>(null)
@@ -27,7 +29,7 @@ export function SeriesView({ header, onChanged, onOpenEdit }: { header: HeaderPr
   const people = characters.filter((c) => !c.kind)
   const things = characters.filter((c) => c.kind === 'element')
   const builder = charId && (
-    <CharacterBuilder id={charId} tasks={tasks} usedIn={list.filter((s) => s.cast.includes(charId) || s.elements?.includes(charId)).map((s) => s.title)} onClose={() => setCharId(null)} />
+    <CharacterBuilder id={charId} tasks={tasks} usedIn={all.filter((s) => s.cast.includes(charId) || s.elements?.includes(charId)).map((s) => s.title)} onClose={() => setCharId(null)} />
   )
 
   if (open)
@@ -41,24 +43,24 @@ export function SeriesView({ header, onChanged, onOpenEdit }: { header: HeaderPr
   return (
     <div className="flex h-full flex-col">
       <Header {...header}>
-        <span className="font-medium">Series</span>
+        <span className="font-medium">{ads ? 'Ads' : 'Series'}</span>
         <div className="absolute left-1/2 flex -translate-x-1/2 gap-1 rounded-full bg-raised p-1 text-sm">
           {(['series', 'characters', 'elements'] as const).map((k) => (
             <button key={k} type="button" aria-pressed={tab === k} onClick={() => setTab(k)}
               className={`h-9 rounded-full px-6 font-medium transition-colors ${tab === k ? 'bg-surface text-fg shadow-sm' : 'text-muted hover:text-fg'}`}>
-              {k === 'series' ? 'Series' : k === 'characters' ? `Characters${people.length ? ` · ${people.length}` : ''}` : `Elements${things.length ? ` · ${things.length}` : ''}`}
+              {k === 'series' ? (ads ? 'Products' : 'Series') : k === 'characters' ? `Characters${people.length ? ` · ${people.length}` : ''}` : `Elements${things.length ? ` · ${things.length}` : ''}`}
             </button>
           ))}
         </div>
       </Header>
       <div className="flex-1 overflow-y-auto">
         {tab === 'series' ? (
-          <SeriesHome list={list} characters={characters} tasks={tasks} justDeleted={justDeleted} onUndone={() => setJustDeleted(null)}
+          <SeriesHome ads={ads} list={list} characters={characters} tasks={tasks} justDeleted={justDeleted} onUndone={() => setJustDeleted(null)}
             onOpen={(id) => (setJustDeleted(null), setOpenId(id))} onCharacter={setCharId} />
         ) : tab === 'characters' ? (
-          <CharacterLibrary characters={people} series={list} tasks={tasks} onOpen={setCharId} />
+          <CharacterLibrary characters={people} series={all} tasks={tasks} onOpen={setCharId} />
         ) : (
-          <CharacterLibrary elements characters={things} series={list} tasks={tasks} onOpen={setCharId} />
+          <CharacterLibrary elements characters={things} series={all} tasks={tasks} onOpen={setCharId} />
         )}
       </div>
       {builder}
@@ -72,7 +74,8 @@ async function newCharacter(then: (id: string) => void, element = false) {
   then(c.id)
 }
 
-function SeriesHome({ list, characters, tasks, justDeleted, onUndone, onOpen, onCharacter }: {
+function SeriesHome({ ads, list, characters, tasks, justDeleted, onUndone, onOpen, onCharacter }: {
+  ads: boolean
   list: Series[]
   characters: Character[]
   tasks: Tasks
@@ -91,7 +94,7 @@ function SeriesHome({ list, characters, tasks, justDeleted, onUndone, onOpen, on
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [deleted, setDeleted] = useState<{ series: Series; deletedAt: number }[]>([])
-  useEffect(() => void api.deletedSeries().then(setDeleted), [list])
+  useEffect(() => void api.deletedSeries().then((d) => setDeleted(d.filter((x) => (x.series.kind === 'ad') === ads))), [list, ads])
   const restore = (id: string) => api.restoreSeries(id).then(loadAll).then(onUndone)
   async function write() {
     if (!idea.trim() || busy) return
@@ -117,6 +120,7 @@ function SeriesHome({ list, characters, tasks, justDeleted, onUndone, onOpen, on
           <IconButton title="Dismiss" className="size-7" onClick={onUndone}><X size={14} /></IconButton>
         </div>
       )}
+      {ads ? <AdsForm characters={characters} tasks={tasks} onOpen={onOpen} onCharacter={onCharacter} /> : (
       <div className="flex flex-col gap-3 rounded-3xl border border-line bg-surface p-4 shadow-[0_2px_12px_rgba(0,0,0,0.04)]">
         <textarea id="series-idea" rows={3} value={idea} onChange={(e) => setIdea(e.target.value)}
           placeholder="Your series idea: who it's about, the world, the tone. Two baristas in Baku and an espresso machine that grants wishes, deadpan comedy."
@@ -172,16 +176,17 @@ function SeriesHome({ list, characters, tasks, justDeleted, onUndone, onOpen, on
         <p className="px-1 text-xs text-faint">GPT 6 Sol writes the premise, the look, the rules of the world and the episode list (a few cents). Each episode then goes step by step, and you approve the script and the scenes before any video is made.</p>
         {error && <p className="px-1 text-[13px] text-danger">{error}</p>}
       </div>
+      )}
       {list.length > 0 && (
         <div className="flex flex-col gap-1">
-          <h2 className="mb-1 font-medium">Your series</h2>
+          <h2 className="mb-1 font-medium">{ads ? 'Your products' : 'Your series'}</h2>
           {list.map((s) => (
             <button key={s.id} type="button" onClick={() => onOpen(s.id)} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-raised">
-              <span className="flex -space-x-2">{s.cast.slice(0, 4).map((id) => <Avatar key={id} c={characters.find((c) => c.id === id)} t={tasks} size="size-8" />)}</span>
+              <span className="flex -space-x-2">{(ads ? [s.product ?? ''] : s.cast.slice(0, 4)).map((id) => <Avatar key={id} c={characters.find((c) => c.id === id)} t={tasks} size="size-8" />)}</span>
               <span className="flex min-w-0 flex-col">
                 <span className="font-medium">{s.title}</span>
                 <span className="line-clamp-1 text-[13px] text-muted">{s.logline}</span>
-                <span className="text-xs text-faint">{s.episodes.filter((e) => e.cut).length} of {s.episodes.length} episodes finished</span>
+                <span className="text-xs text-faint">{s.episodes.filter((e) => e.cut).length} of {s.episodes.length} {ads ? 'ads' : 'episodes'} finished</span>
               </span>
             </button>
           ))}
@@ -207,6 +212,97 @@ function SeriesHome({ list, characters, tasks, justDeleted, onUndone, onOpen, on
   )
 }
 
+// A product's ads start here: its photo and what it is. The writer turns that into the product (an element made from the
+// photo), the brief, the people and places the ads need, and the ads to make; then the product opens so you can check it.
+function AdsForm({ characters, tasks, onOpen, onCharacter }: { characters: Character[]; tasks: Tasks; onOpen: (id: string) => void; onCharacter: (id: string) => void }) {
+  const [description, setDescription] = useState('')
+  const [photo, setPhoto] = useState<Attachment>()
+  const [ads, setAds] = useState('3')
+  const [seconds, setSeconds] = useState('15')
+  const [cast, setCast] = useState<string[]>([])
+  const [elementIds, setElementIds] = useState<string[]>([])
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const picker = useRef<HTMLInputElement>(null)
+  const addPhoto = async (files: FileList | File[]) => {
+    const [a] = await toAttachments(files, ACCEPT_IMAGES)
+    setError(a ? '' : 'The product photo must be PNG, JPG or WebP.')
+    if (a) setPhoto(a)
+  }
+  async function write() {
+    if (!description.trim() || busy) return
+    setBusy(true)
+    setError('')
+    try {
+      const { series } = await api.writeAds({ description: description.trim(), photo }, Number(ads), Number(seconds), cast, elementIds)
+      await api.saveSeries(series)
+      await loadAll()
+      onOpen(series.id)
+      if (series.product) onCharacter(series.product)
+    } catch (e) {
+      setError(errMsg(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  const chips = (kind: 'people' | 'places', on: string[], setOn: (ids: string[]) => void) => (
+    <div className="flex flex-wrap gap-1.5">
+      {characters.filter((c) => (kind === 'people' ? !c.kind : c.kind === 'element' && c.category !== 'product')).map((c) => {
+        const picked = on.includes(c.id)
+        return (
+          <button key={c.id} type="button" aria-pressed={picked} onClick={() => setOn(picked ? on.filter((x) => x !== c.id) : [...on, c.id])}
+            className={`inline-flex h-8 items-center gap-1.5 rounded-full border pr-3 pl-1 text-[13px] ${picked ? 'border-fg bg-raised' : 'border-line text-muted hover:bg-raised'}`}>
+            <Avatar c={c} t={tasks} size="size-6" /> {c.name || 'Unnamed'} {picked && <Check size={12} />}
+          </button>
+        )
+      })}
+      <button type="button" onClick={() => newCharacter((id) => (setOn([...on, id]), onCharacter(id)), kind === 'places')}
+        className="inline-flex h-8 items-center gap-1 rounded-full border border-dashed border-line px-3 text-[13px] text-muted hover:text-fg">
+        <Plus size={13} /> {kind === 'people' ? 'New person' : 'New place'}
+      </button>
+    </div>
+  )
+  return (
+    <div className="flex flex-col gap-3 rounded-3xl border border-line bg-surface p-4 shadow-[0_2px_12px_rgba(0,0,0,0.04)]"
+      onDragOver={(e) => e.preventDefault()} onDrop={(e) => (e.preventDefault(), void addPhoto(e.dataTransfer.files))}>
+      <div className="flex gap-3">
+        <div className="flex w-28 shrink-0 flex-col items-center gap-1">
+          <button type="button" onClick={() => picker.current?.click()} title="The product photo: every shot is drawn from it"
+            className="flex aspect-square w-full items-center justify-center overflow-hidden rounded-xl border border-dashed border-line text-muted hover:border-fg hover:text-fg">
+            {photo ? <img src={mediaUrl(photo)} alt="Product photo" className="size-full object-cover" /> : <ImagePlus size={20} />}
+          </button>
+          <span className="text-center text-[11px] text-faint">{photo ? <button type="button" className="underline" onClick={() => setPhoto(undefined)}>Remove</button> : 'Product photo'}</span>
+          <input ref={picker} type="file" accept={ACCEPT_IMAGES} hidden onChange={(e) => (e.target.files && void addPhoto(e.target.files), (e.target.value = ''))} />
+        </div>
+        <textarea id="ads-product" rows={5} value={description} onChange={(e) => setDescription(e.target.value)}
+          placeholder="The product: what it is, what it does, who it's for, the price or offer. A rechargeable mini blender, blends a smoothie in 30 seconds, fits a bag, $29 with free shipping. For gym-goers and busy parents."
+          className="min-w-0 flex-1 resize-none bg-transparent px-1 text-[15px] leading-relaxed placeholder:text-faint" />
+      </div>
+      <div className="flex flex-col gap-1.5 px-1">
+        <span className="text-xs text-muted">People from your Characters (optional; the writer adds a presenter or someone reacting if the ads need one)</span>
+        {chips('people', cast, setCast)}
+      </div>
+      <div className="flex flex-col gap-1.5 px-1">
+        <span className="text-xs text-muted">Places and props from your Elements (optional: the kitchen, the car)</span>
+        {chips('places', elementIds, setElementIds)}
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <SelectChip title="Ads" label={`${ads} ads`} value={ads} onChange={setAds} options={['3', '5', '8'].map((n) => ({ value: n, label: `${n} ads` }))} />
+        <SelectChip title="Ad length" label={`${seconds} s each`} value={seconds} onChange={setSeconds} options={['15', '20', '30'].map((n) => ({ value: n, label: `${n} seconds` }))} />
+        <span className="text-xs text-faint">9:16 · 3 hooks per ad</span>
+        <button type="button" disabled={!description.trim() || busy} onClick={write} className="ml-auto inline-flex h-9 items-center gap-2 rounded-full bg-inverse px-4 font-medium text-on-inverse disabled:opacity-35">
+          {busy ? <LoaderCircle size={15} className="animate-spin" /> : <Megaphone size={15} />} {busy ? 'Writing…' : 'Write the product brief'}
+        </button>
+      </div>
+      <p className="px-1 text-xs text-faint">
+        GPT 6 Sol reads the photo and the description and writes the brief (buyer, problem, the moment it works, what not to claim) and a plan of ads, each in a
+        different format: problem → fix, unboxing, before / after, reaction, satisfying and more. Each ad gets three hooks and is made as one video per hook, so you can see which one holds viewers.
+      </p>
+      {error && <p className="px-1 text-[13px] text-danger">{error}</p>}
+    </div>
+  )
+}
+
 function SeriesEditor({ header, s, characters, tasks, runs, onBack, onDeleted, onCharacter, onOpenEdit }: {
   header: HeaderProps
   s: Series
@@ -225,8 +321,13 @@ function SeriesEditor({ header, s, characters, tasks, runs, onBack, onDeleted, o
   const ep = s.episodes.find((e) => e.id === epId) ?? s.episodes[0]
   const cast = s.cast.map((id) => characters.find((c) => c.id === id)).filter((c): c is Character => !!c)
   const others = characters.filter((c) => !c.kind && !s.cast.includes(c.id))
-  const elements = (s.elements ?? []).map((id) => characters.find((c) => c.id === id)).filter((c): c is Character => !!c)
+  const ad = s.kind === 'ad'
+  // things: every element of the series (an ad set's product included; scenes draw from them). elements: the ones listed.
+  const things = (s.elements ?? []).map((id) => characters.find((c) => c.id === id)).filter((c): c is Character => !!c)
+  const elements = things.filter((c) => c.id !== s.product)
+  const product = things.find((c) => c.id === s.product)
   const otherElements = characters.filter((c) => c.kind === 'element' && !(s.elements ?? []).includes(c.id))
+  const word = ad ? 'ad' : 'episode'
   const set = (fn: (x: Series) => void) => void updateSeries(s.id, fn)
   const running = (e: Episode) => !!runs[`${s.id}:${e.id}`]?.step
 
@@ -248,10 +349,26 @@ function SeriesEditor({ header, s, characters, tasks, runs, onBack, onDeleted, o
       </Header>
       <div className="flex min-h-0 flex-1">
         <aside className="flex w-80 shrink-0 flex-col gap-5 overflow-y-auto border-r border-line px-4 pt-1 pb-8">
-          <input id="series-title" aria-label="Series title" value={s.title} onChange={(e) => set((x) => void (x.title = e.target.value))} className="bg-transparent text-xl font-semibold tracking-tight" />
+          <input id="series-title" aria-label={ad ? 'Product name' : 'Series title'} value={s.title} onChange={(e) => set((x) => void (x.title = e.target.value))} className="bg-transparent text-xl font-semibold tracking-tight" />
+
+          {product && (
+            <div className="flex flex-col gap-2">
+              <span className="text-xs text-muted">Product</span>
+              <button type="button" onClick={() => onCharacter(product.id)} className="flex items-center gap-2.5 rounded-lg py-0.5 pr-2 text-left hover:bg-raised">
+                <Avatar c={product} t={tasks} size="size-12" />
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate text-[13px] font-medium">{product.name}</span>
+                  <span className={`text-xs ${ready(tasks, product) ? 'text-muted' : 'text-danger'}`}>
+                    {fileOf(tasks, product.sheetTask) ? 'Image and angles ready' : fileOf(tasks, product.portraitTask) ? 'Add more angles for steadier shots'
+                      : product.photo ? 'Drawn from your photo; a clean image and angles keep it steadier' : 'Pick an image'}
+                  </span>
+                </span>
+              </button>
+            </div>
+          )}
 
           <div className="flex flex-col gap-2">
-            <span className="text-xs text-muted">Cast</span>
+            <span className="text-xs text-muted">{ad ? 'People' : 'Cast'}</span>
             {cast.map((c) => (
               <div key={c.id} className="group flex items-center gap-1">
                 <button type="button" onClick={() => onCharacter(c.id)} className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg py-0.5 pr-2 text-left hover:bg-raised">
@@ -263,7 +380,7 @@ function SeriesEditor({ header, s, characters, tasks, runs, onBack, onDeleted, o
                     </span>
                   </span>
                 </button>
-                <IconButton title="Remove from this series" className="hidden size-7 group-hover:inline-flex" onClick={() => set((x) => void (x.cast = x.cast.filter((id) => id !== c.id)))}><X size={13} /></IconButton>
+                <IconButton title={`Remove from ${ad ? 'these ads' : 'this series'}`} className="hidden size-7 group-hover:inline-flex" onClick={() => set((x) => void (x.cast = x.cast.filter((id) => id !== c.id)))}><X size={13} /></IconButton>
               </div>
             ))}
             <div className="flex flex-wrap gap-1.5">
@@ -274,13 +391,13 @@ function SeriesEditor({ header, s, characters, tasks, runs, onBack, onDeleted, o
               )}
               <button type="button" onClick={() => newCharacter((id) => (set((x) => void x.cast.push(id)), onCharacter(id)))}
                 className="inline-flex h-8 items-center gap-1 rounded-full border border-dashed border-line px-3 text-[13px] text-muted hover:text-fg">
-                <Plus size={13} /> New character
+                <Plus size={13} /> {ad ? 'New person' : 'New character'}
               </button>
             </div>
           </div>
 
           <div className="flex flex-col gap-2">
-            <span className="text-xs text-muted">Elements</span>
+            <span className="text-xs text-muted">{ad ? 'Places and props' : 'Elements'}</span>
             {elements.map((c) => (
               <div key={c.id} className="group flex items-center gap-1">
                 <button type="button" onClick={() => onCharacter(c.id)} className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg py-0.5 pr-2 text-left hover:bg-raised">
@@ -290,7 +407,7 @@ function SeriesEditor({ header, s, characters, tasks, runs, onBack, onDeleted, o
                     <span className={`truncate text-xs ${ready(tasks, c) ? 'text-muted' : 'text-danger'}`}>{ready(tasks, c) ? (c.category ?? 'other').replace(/^./, (x) => x.toUpperCase()) : 'Pick an image'}</span>
                   </span>
                 </button>
-                <IconButton title="Remove from this series" className="hidden size-7 group-hover:inline-flex" onClick={() => set((x) => void (x.elements = (x.elements ?? []).filter((id) => id !== c.id)))}><X size={13} /></IconButton>
+                <IconButton title={`Remove from ${ad ? 'these ads' : 'this series'}`} className="hidden size-7 group-hover:inline-flex" onClick={() => set((x) => void (x.elements = (x.elements ?? []).filter((id) => id !== c.id)))}><X size={13} /></IconButton>
               </div>
             ))}
             <div className="flex flex-wrap gap-1.5">
@@ -304,11 +421,21 @@ function SeriesEditor({ header, s, characters, tasks, runs, onBack, onDeleted, o
                 <Plus size={13} /> New element
               </button>
             </div>
-            {!elements.length && <span className="text-xs text-faint">Places and things that should look the same in every scene that names them.</span>}
+            {!elements.length && <span className="text-xs text-faint">Places and things that should look the same in every {ad ? 'shot' : 'scene'} that names them.</span>}
           </div>
 
           <details open={!s.episodes.some((e) => e.scenes.length)}>
-            <summary className="cursor-pointer text-xs text-muted select-none">Story bible</summary>
+            <summary className="cursor-pointer text-xs text-muted select-none">{ad ? 'Product brief' : 'Story bible'}</summary>
+            {ad ? (
+              <div className="mt-2 flex flex-col gap-3">
+                <label className="flex flex-col gap-1"><span className="text-xs text-muted">Angle: who it's for and what it does for them</span>
+                  <textarea rows={2} value={s.logline} onChange={(e) => set((x) => void (x.logline = e.target.value))} className={`${field} resize-none`} /></label>
+                <label className="flex flex-col gap-1"><span className="text-xs text-muted">Brief: the facts every ad respects (buyer, problem, what we show, what we never claim)</span>
+                  <textarea rows={8} value={s.continuity} onChange={(e) => set((x) => void (x.continuity = e.target.value))} className={`${field} resize-y`} /></label>
+                <label className="flex flex-col gap-1"><span className="text-xs text-muted">Look of every shot</span>
+                  <textarea rows={3} value={s.style} onChange={(e) => set((x) => void (x.style = e.target.value))} className={`${field} resize-none`} /></label>
+              </div>
+            ) : (
             <div className="mt-2 flex flex-col gap-3">
               <label className="flex flex-col gap-1"><span className="text-xs text-muted">Logline</span>
                 <textarea rows={2} value={s.logline} onChange={(e) => set((x) => void (x.logline = e.target.value))} className={`${field} resize-none`} /></label>
@@ -326,10 +453,11 @@ function SeriesEditor({ header, s, characters, tasks, runs, onBack, onDeleted, o
               <label className="flex flex-col gap-1"><span className="text-xs text-muted">Continuity: what every episode must respect (updated after each finished episode)</span>
                 <textarea rows={5} value={s.continuity} onChange={(e) => set((x) => void (x.continuity = e.target.value))} className={`${field} resize-none`} /></label>
             </div>
+            )}
           </details>
 
           <div className="flex flex-col gap-0.5">
-            <span className="mb-1 text-xs text-muted">Episodes</span>
+            <span className="mb-1 text-xs text-muted">{ad ? 'Ads' : 'Episodes'}</span>
             {s.episodes.map((e, i) =>
               confirmEp === e.id ? (
                 <div key={e.id} className="flex items-center gap-2 rounded-lg bg-raised px-2.5 py-1.5 text-[13px]">
@@ -346,7 +474,7 @@ function SeriesEditor({ header, s, characters, tasks, runs, onBack, onDeleted, o
                       {running(e) ? <LoaderCircle size={13} className="animate-spin" /> : e.cut ? <Film size={13} /> : e.step !== 'script' ? e.step : ''}
                     </span>
                   </button>
-                  {!running(e) && <IconButton title="Remove episode" className="hidden size-7 group-hover:inline-flex" onClick={() => removeEpisode(e)}><X size={14} /></IconButton>}
+                  {!running(e) && <IconButton title={`Remove ${word}`} className="hidden size-7 group-hover:inline-flex" onClick={() => removeEpisode(e)}><X size={14} /></IconButton>}
                 </div>
               ),
             )}
@@ -359,26 +487,26 @@ function SeriesEditor({ header, s, characters, tasks, runs, onBack, onDeleted, o
                 </button>
               </div>
             )}
-            <button type="button" onClick={() => set((x) => void x.episodes.push({ id: crypto.randomUUID(), title: `Episode ${x.episodes.length + 1}`, summary: '', step: 'script', scenes: [], music: true }))}
+            <button type="button" onClick={() => set((x) => void x.episodes.push({ id: crypto.randomUUID(), title: `${ad ? 'Ad' : 'Episode'} ${x.episodes.length + 1}`, summary: '', step: 'script', scenes: [], music: !ad }))}
               className="inline-flex h-8 w-fit items-center gap-1.5 rounded-full px-2.5 text-[13px] text-muted hover:bg-raised hover:text-fg">
-              <Plus size={14} /> Episode
+              <Plus size={14} /> {ad ? 'Ad' : 'Episode'}
             </button>
           </div>
 
           <div className="mt-auto flex items-center gap-2 border-t border-line pt-3 text-[13px]">
             {confirmDelete ? (
               <>
-                <span>Delete this series? You can restore it from Series for 30 days. Characters stay saved.</span>
+                <span>{ad ? 'Delete these ads? You can restore them from Ads for 30 days. The product, people and places stay saved.' : 'Delete this series? You can restore it from Series for 30 days. Characters stay saved.'}</span>
                 <button type="button" onClick={() => api.deleteSeries(s.id).then(loadAll).then(onDeleted)} className="h-8 shrink-0 rounded-full bg-inverse px-3 font-medium text-on-inverse">Delete</button>
                 <button type="button" onClick={() => setConfirmDelete(false)} className="h-8 shrink-0 rounded-full px-3 hover:bg-raised">Keep</button>
               </>
             ) : (
-              <IconButton title="Delete series" onClick={() => setConfirmDelete(true)}><Trash2 size={15} /></IconButton>
+              <IconButton title={ad ? 'Delete these ads' : 'Delete series'} onClick={() => setConfirmDelete(true)}><Trash2 size={15} /></IconButton>
             )}
           </div>
         </aside>
         {ep ? (
-          <EpisodeView key={ep.id} s={s} ep={ep} index={s.episodes.indexOf(ep)} tasks={tasks} cast={cast} things={elements} run={runs[`${s.id}:${ep.id}`]} onCharacter={onCharacter} onOpenEdit={onOpenEdit} />
+          <EpisodeView key={ep.id} s={s} ep={ep} index={s.episodes.indexOf(ep)} tasks={tasks} cast={cast} things={things} run={runs[`${s.id}:${ep.id}`]} onCharacter={onCharacter} onOpenEdit={onOpenEdit} />
         ) : (
           <div className="flex-1" />
         )}

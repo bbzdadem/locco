@@ -105,11 +105,12 @@ export type UsageRow = { day: string; source: 'chat' | 'media' | 'extra'; model:
 
 // --- Series ---
 // A saved character, castable in any series. The portrait is picked from a few options; the reference sheet is made from it.
-// Elements (recurring places, props, creatures) are kept the same way, with kind 'element' and no voice.
+// Elements (recurring places, props, creatures, and the products ads sell) are kept the same way, with kind 'element' and no voice.
+// A product's photo is its truth: it goes with every shot, next to the image and angles made from it.
 export type Character = {
   id: string
   kind?: 'element'
-  category?: 'place' | 'prop' | 'creature' | 'other'
+  category?: 'place' | 'prop' | 'creature' | 'product' | 'other'
   name: string
   look: string
   personality: string
@@ -133,8 +134,12 @@ export type ShotPlan = {
   text?: string
   transition?: string
 }
+// Ads: a shot with a hook letter is one of the alternative openings (A, B, C); each version of the ad is one hook plus
+// the shots without one. seconds: how long a shot without dialogue runs (3 s if not set).
 export type Scene = {
   id: string
+  hook?: string
+  seconds?: number
   plan?: ShotPlan
   place: string
   action: string
@@ -152,8 +157,11 @@ export type Scene = {
 // Episodes move through the steps in order; script and scenes wait for your approval.
 export type Step = 'script' | 'scenes' | 'voices' | 'video' | 'cut'
 // cuts: earlier renders, oldest first (the Edit section's exports land here too).
+// format and adCuts are for ads: the ad's format (see AD_FORMATS) and one finished video per hook.
 export type Episode = {
   beats?: string
+  format?: string
+  adCuts?: string[]
   id: string; title: string; summary: string; step: Step; scenes: Scene[]; recap?: string; music?: boolean; musicTask?: string; cut?: string; cuts?: string[]
 }
 // A clip on the editor's timeline. in/out are seconds in the scene's video; hold freezes the last frame; pan -1…1 moves
@@ -164,8 +172,12 @@ export type EditClip = {
 }
 export type Edit = { clips: EditClip[]; music: boolean; volume: number }
 // continuity: running notes on what has happened, kept up to date after every finished episode.
+// kind 'ad': a product's ads. The episodes are ads, cast are the people in them, product is the product's element id,
+// logline the angle, continuity the product brief, idea what you wrote about the product.
 export type Series = {
   id: string
+  kind?: 'ad'
+  product?: string
   title: string
   idea: string
   logline: string

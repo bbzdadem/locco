@@ -5,6 +5,7 @@ import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
+import { AD_FORMATS, adShots, formatOf, HOOKS } from '../shared/ads'
 import { ELEVEN_VOICES } from '../shared/models'
 import { clipLength, sceneTarget } from '../shared/timing'
 import type { Attachment, Character, Episode, Ref, RenderRequest, Scene, Series, ShotPlan } from '../shared/types'
@@ -84,13 +85,18 @@ function planFrom(p: any): ShotPlan | undefined {
   return { shot: str(p.shot), beats: str(p.beats), performance: str(p.performance), move: str(p.move), environment: str(p.environment), sound: str(p.sound),
     ...(str(p.text) && { text: str(p.text) }), ...(str(p.transition) && { transition: str(p.transition) }) }
 }
+// A shot whose plan has only on-screen text (an ad writer's hook text) still waits for the director: see planned().
+const textOnly = (text: string): ShotPlan => ({ shot: '', beats: '', performance: '', move: '', environment: '', sound: '', text })
+const planned = (sc: Scene) => !!sc.plan?.shot
 function scenesFrom(out: { scenes?: any[] }): Scene[] {
   return (out.scenes ?? []).slice(0, 15).map((x) => {
-    const plan = planFrom(x.plan)
+    const plan = planFrom(x.plan) ?? (str(x.text) ? textOnly(str(x.text)) : undefined)
     return {
       id: randomUUID(), place: str(x.place), action: str(x.action), camera: str(x.camera) || (plan ? [plan.shot, plan.move].filter(Boolean).join('; ') : ''),
       cast: Array.isArray(x.cast) ? x.cast.map(String) : [],
       lines: (Array.isArray(x.lines) ? x.lines : []).slice(0, 2).map((l: any) => ({ speaker: str(l.speaker), text: str(l.text) })).filter((l: any) => l.text),
+      ...(HOOKS.includes(str(x.hook)) && { hook: str(x.hook) }),
+      ...(Number(x.seconds) > 0 && { seconds: Math.min(4, Math.max(1.2, Number(x.seconds))) }),
       ...(plan && { plan }),
     }
   })
@@ -176,7 +182,68 @@ export async function writeSeries(idea: string, episodes: number, seconds: numbe
   }
 }
 
-const storySoFar = (s: Series, index: number) =>
+const isAd = (s: Series) => s.kind === 'ad'
+const adContext = (s: Series, index: number) => {
+  const product = charactersById([s.product ?? ''])[0]
+  return [
+    `Product: ${product?.name ?? s.title}. Looks: ${product?.look ?? ''}`,
+    `Angle: ${s.logline}`,
+    `Product brief (facts every ad must respect):\n${s.continuity || 'none'}`,
+    `Look of every shot: ${s.style}`,
+    `People who can appear:\n${castText(charactersById(s.cast))}`,
+    `Places and props (name them exactly when they appear, so they look the same):\n${elementText(charactersById((s.elements ?? []).filter((id) => id !== s.product)))}`,
+    `The other ads for this product (this one needs a different hook and angle):\n${s.episodes.filter((_, i) => i !== index).map((e) => `- ${e.title}${formatOf(e.format) ? ` (${formatOf(e.format)!.name})` : ''}: ${e.summary}`).join('\n') || 'none'}`,
+  ].join('\n\n')
+}
+// A product's ads: the product brief, the product as an element (from your photo), people and places, and the ads to make.
+export async function writeAds(product: { description: string; photo?: Attachment }, ads: number, seconds: number, castIds: string[], elementIds: string[]):
+  Promise<{ series: Series; created: Character[] }> {
+  const cast = charactersById(castIds)
+  const elements = charactersById(elementIds)
+  const out = json<any>(await complete(WRITER, [
+    'You are the creative strategist for organic TikTok/Reels product videos (the dropshipping style: filmed on a phone by real people, never like a commercial).',
+    `From the product description${product.photo ? ' and the attached photo' : ''}, write the product brief and plan the ads. Reply with JSON only:`,
+    '{"name": "the product\'s short name, as shots will mention it (2-3 words)",',
+    ' "look": "a precise visual description of the product an image model can repeat: shape, size, colours, materials, finish, parts, logo and label text exactly as printed",',
+    ' "logline": "the angle in one sentence: who it is for and what it does for them",',
+    ' "brief": "short bullet lines: Buyer (who, their situation); Problem (in their words); The moment it works (what we see on camera); Proof we can show; Objections and answers; Price or offer if given; Never claim (what we must not say)",',
+    ' "style": "the look of every shot: real phone footage, the kind of home, light and colour that suit this product and buyer (1-2 sentences)",',
+    ' "new_characters": [{"name": "...", "look": "precise visual description: age, face, skin, hair, build, clothes", "personality": "...", "voice": "one voice name from the list"}],',
+    ' "new_elements": [{"name": "short name, e.g. The Kitchen", "category": "place or prop", "look": "precise visual description"}],',
+    ' "ads": [{"title": "...", "format": "a format id", "summary": "2-3 sentences: the hook (with its on-screen text), the moment the product works on camera, the payoff and the call to action"}]}',
+    `Plan exactly ${ads} ads of about ${seconds} seconds, each with a different format and hook family. Formats (id: what it is):\n${AD_FORMATS.map((f) => `${f.id}: ${f.beats}`).join('\n')}`,
+    `People already chosen:\n${castText(cast)}`,
+    'Add new_characters (0 to 2) only if the ads need people (someone presenting, reacting, or using it); make them ordinary, believable people the buyer would trust.',
+    `Places and props already chosen:\n${elementText(elements)}`,
+    'Add new_elements (0 to 2) only for places or props that recur across the ads (the kitchen, the car).',
+    `Voices to choose from (name only): ${voiceList()}.`,
+    'Write in the language of the description.',
+  ].join('\n'), product.description, undefined, product.photo ? [product.photo] : []))
+  const item: Character = {
+    id: randomUUID(), kind: 'element', category: 'product', name: str(out.name) || 'The product', look: str(out.look), personality: '',
+    ...(product.photo && { photo: product.photo }), createdAt: Date.now(),
+  }
+  const people: Character[] = (out.new_characters ?? []).slice(0, 2).map((c: any) => ({
+    id: randomUUID(), name: str(c.name), look: str(c.look), personality: str(c.personality), voice: voiceId(c.voice), createdAt: Date.now(),
+  }))
+  const places: Character[] = (out.new_elements ?? []).slice(0, 2).map((e: any) => ({
+    id: randomUUID(), kind: 'element', name: str(e.name), look: str(e.look), personality: '', category: e.category === 'prop' ? 'prop' : 'place', createdAt: Date.now(),
+  }))
+  const created = [item, ...people, ...places]
+  created.forEach(saveCharacter)
+  return {
+    created,
+    series: {
+      id: randomUUID(), kind: 'ad', product: item.id, title: item.name, idea: product.description, logline: str(out.logline), style: str(out.style),
+      seconds, imageModel: 'gpt-image-2', videoModel: 'kling-3', videoSound: false,
+      cast: [...cast, ...people].map((c) => c.id), elements: [item, ...elements, ...places].map((e) => e.id), continuity: str(out.brief),
+      episodes: (out.ads ?? []).slice(0, ads).map((e: any) => ({ id: randomUUID(), title: str(e.title), summary: str(e.summary), format: formatOf(str(e.format))?.id, step: 'script', scenes: [], music: false })),
+      createdAt: Date.now(),
+    },
+  }
+}
+
+const storySoFar = (s: Series, index: number) => isAd(s) ? adContext(s, index) :
   [
     `Series "${s.title}": ${s.logline}`,
     `Look of every scene: ${s.style}`,
@@ -206,12 +273,46 @@ const DIRECTION = [
   '- transition: how this shot cuts to the next (smash cut, match cut, whip, hard cut on action).',
 ].join('\n')
 
+// From the research on organic (dropshipping-style) product videos: what hooks, holds and sells, and what looks real.
+const AD_CRAFT = [
+  'This is an organic product video for TikTok, Reels and Shorts (the dropshipping style): it must look filmed on a phone by a real person in a real home, never like a commercial. Vertical 9:16; sound on, but it must work on mute.',
+  'Viewers decide in 1-2 seconds. The HOOK shot (the first 1.5-3 s) is about the product or the problem it solves: start mid-action on the most striking moment, with hook text on screen (3-8 words). Never open with a greeting or a logo.',
+  'Hook families: call out the person ("If you have a small apartment…"), show the problem ("If your cables look like this…"), curiosity ("I didn\'t know I needed this until…"), price ("$8 vs $40"), a controlled test ("Same spill, one change"), POV or gift ("POV: you found the perfect gift for your dad"), a warning ("Don\'t buy this until you…"), or the most satisfying visual first.',
+  'Then: PROBLEM (the viewer\'s real pain, in their words) → DEMO (the product working, close and clear, one benefit per shot) → PROOF (the result, a reaction, a test) → CALL TO ACTION (soft: "link\'s below", "comment LINK", "save this for later"), or end on a frame that flows back into the first so it loops.',
+  'Pacing: a new picture every 1.5-3 s; nothing static longer than 4 s; every shot shows something new.',
+  'Show, don\'t tell: the product doing its job on camera is the proof. One feature per shot, close enough to see.',
+  'Reactions: small, specific and real (eyebrows up, a laugh, a "wait…", leaning in, a dog tilting its head), 1-1.5 s, either as the hook (the face at its peak, then what caused it) or right after the result. No big fake gasps.',
+  'Voice: a casual voiceover (speaker "Narrator") or a person talking to the camera, like a friend: contractions, "okay so", "honestly"; at most one short sentence per shot (3-8 words, about 2.5 words a second); nothing corporate. Satisfying/ASMR ads have no voice.',
+  'On-screen text: 3-8 words where it helps; it carries the story for viewers on mute. The hook shot always has it.',
+  'Honesty: show only what the product really does (from the brief); no invented reviews, ratings, statistics, prices or health claims; before/after must be realistic and typical.',
+].join('\n')
+
+const AD_DIRECTION = [
+  'For every shot write a plan an image model and a video model can follow exactly. Concrete and visual; it must look like real phone footage.',
+  '- shot: one of POV hands (first person, the product held toward the lens), top-down (table and hands), macro detail (texture, button, mechanism, label), hero three-quarter (the product on a real surface), in use (someone using it in a real place, medium), selfie talking (arm\'s length, slightly above eye level, a little off-centre), over the shoulder, reaction close-up, locked before/after (identical framing both times). A phone lens (26mm main, 13mm wide, 77mm tele, close-up macro). Composition in 9:16: key action in the middle; the top 15% and bottom 25% stay free (the app UI and the text cover them).',
+  '- beats: what happens over the shot, timed, 2-3 beats, e.g. "0-1 s the thumb presses the button; 1-2 s the light comes on".',
+  '- performance: hands relaxed and simple (hold, turn, press, pour, peel), never covering the label; the label faces the camera, never mirrored; the logo first on a reveal; people look into the lens when they talk; reactions small and real.',
+  '- move: a phone move: slight handheld drift, a quick push-in, a follow, or locked off on the counter for tests.',
+  '- environment: a real lived-in place (kitchen, bathroom, bedroom, car, desk, outdoors) with natural window light or warm lamps and soft shadows; never a studio or a plain backdrop; props stay where they were.',
+  '- sound: the product\'s own sounds (click, zip, pour, snap, fizz) and room tone.',
+  '- text: the on-screen text for this shot (3-8 words) or empty; keep the text the shot already has.',
+  '- transition: hard cut on action, match cut, whip.',
+].join('\n')
+const craft = (s: Series) => (isAd(s) ? AD_CRAFT : CRAFT)
+const direction = (s: Series) => (isAd(s) ? AD_DIRECTION : DIRECTION)
+const role = (s: Series) => (isAd(s) ? 'organic product videos (ads)' : 'a vertical short series')
+const AD_SHOT = '{"place": "where and when", "action": "what happens in this shot, naming the product and people exactly", "cast": ["people on screen"], "lines": [{"speaker": "Narrator or a name", "text": "the line"}], "text": "on-screen text, 3-8 words, or empty", "seconds": 2}'
+const AD_SCRIPT_JSON = `{"beats": "the beat sheet: numbered beats with their seconds", "format": "the format id", "hooks": [${AD_SHOT}], "scenes": [${AD_SHOT}]}`
+
 const SCRIPT_JSON = '{"beats": "the beat sheet: numbered beats with their seconds", "scenes": [{"place": "where and when", "action": "what happens in this shot, by name", "cast": ["characters on screen"], "lines": [{"speaker": "name or Narrator", "text": "the line"}]}]}'
-const DIRECTED_JSON = '{"scenes": [{"place": "...", "action": "...", "cast": ["..."], "lines": [{"speaker": "...", "text": "..."}], "plan": {"shot": "...", "beats": "...", "performance": "...", "move": "...", "environment": "...", "sound": "...", "text": "", "transition": "..."}}]}'
+// Ads also carry each shot's hook letter and silent length; series shots don't.
+const directedJson = (s: Series) => (isAd(s) ? DIRECTED_JSON : DIRECTED_JSON.replace('"hook": "", "seconds": 0, ', ''))
+const DIRECTED_JSON = '{"scenes": [{"hook": "", "seconds": 0, "place": "...", "action": "...", "cast": ["..."], "lines": [{"speaker": "...", "text": "..."}], "plan": {"shot": "...", "beats": "...", "performance": "...", "move": "...", "environment": "...", "sound": "...", "text": "", "transition": "..."}}]}'
 
 // Pass 1, the writers' room: a beat sheet built for social, then the script as short shots.
-export async function writeScript(s: Series, index: number): Promise<{ beats: string; scenes: Scene[]; by: string }> {
+export async function writeScript(s: Series, index: number): Promise<{ beats: string; scenes: Scene[]; by: string; format?: string }> {
   const ep = s.episodes[index]
+  if (isAd(s)) return writeAd(s, index)
   const n = sceneTarget(s.seconds)
   const { text, by } = await write(s, [
     'You are the head writer of a vertical short series. First plan the episode as a beat sheet, then write it as shots.',
@@ -227,7 +328,29 @@ export async function writeScript(s: Series, index: number): Promise<{ beats: st
   return { beats: str(out.beats), scenes: scenesFrom(out), by }
 }
 
-const plain = (scenes: Scene[]) => scenes.map(({ place, action, cast, lines, plan }) => ({ place, action, cast, lines: lines.map(({ speaker, text }) => ({ speaker, text })), ...(plan && { plan }) }))
+// An ad: three alternative hook shots (A, B, C), then the body every hook leads into.
+async function writeAd(s: Series, index: number) {
+  const ep = s.episodes[index]
+  const product = charactersById([s.product ?? ''])[0]
+  const f = formatOf(ep.format)
+  const { text, by } = await write(s, [
+    'You are the creative lead for organic product videos. First plan the ad as a beat sheet, then write it as shots.',
+    AD_CRAFT,
+    storySoFar(s, index),
+    f ? `Format: ${f.name}. ${f.beats}` : `Pick the format that fits this ad best (reply with its id): ${AD_FORMATS.map((x) => `${x.id}: ${x.beats}`).join(' ')}`,
+    `The ad runs about ${s.seconds} seconds. Write 3 alternative HOOK shots (1.5-3 s each, each from a different hook family, each with its own on-screen text and, if the ad has a voice, its own opening line), then the body: about ${adShots(s.seconds)} shots that follow on from any of the hooks.`,
+    `Name the product exactly as "${product?.name ?? s.title}" in every shot it is in; name people, places and props exactly. A shot without a line gets "seconds" (1.5-3); a shot with a line runs as long as the line.`,
+    'If the ad brief already has lines, beats or timings, keep them; build on them.',
+    `Reply with JSON only:\n${AD_SCRIPT_JSON}`,
+    'Write in the language of the brief.',
+  ].join('\n\n'), `Ad ${index + 1}: ${ep.title}\n${ep.summary}`)
+  const out = json<{ beats?: string; format?: string; hooks?: any[]; scenes?: any[] }>(text)
+  const hooks = (out.hooks ?? []).slice(0, 3).map((h, i) => ({ ...h, hook: HOOKS[i] }))
+  return { beats: str(out.beats), scenes: scenesFrom({ scenes: [...hooks, ...(out.scenes ?? [])] }), by, format: formatOf(str(out.format))?.id }
+}
+
+const plain = (scenes: Scene[]) => scenes.map(({ place, action, cast, lines, plan, hook, seconds }) =>
+  ({ ...(hook && { hook }), place, action, cast, lines: lines.map(({ speaker, text }) => ({ speaker, text })), ...(seconds && !lines.length && { seconds }), ...(plan && { plan }) }))
 
 // Pass 2, the director: a plan for every shot that has none. Each shot is planned on its own (five at a time) with the
 // whole episode as context, so plans stay in continuity and a full episode is planned in about a minute. A shot that
@@ -236,19 +359,21 @@ export async function directScript(s: Series, index: number, scenes: Scene[]): P
   const context = JSON.stringify({ episode: s.episodes[index].title, shots: plain(scenes) })
   const errors: unknown[] = []
   const results = await pool(scenes.map((sc, i) => async () => {
-    if (sc.plan) return undefined
+    if (planned(sc)) return undefined
     try {
       const { text, by } = await write(s, [
-        'You are the director of a vertical short series. Write the shot plan for ONE shot of the episode, in continuity with the shots around it.',
-        CRAFT,
-        DIRECTION,
+        `You are the director of ${role(s)}. Write the shot plan for ONE shot of the ${isAd(s) ? 'ad' : 'episode'}, in continuity with the shots around it.`,
+        craft(s),
+        direction(s),
         storySoFar(s, index),
         'Keep the shot\'s place, action, cast and lines as they are. Vary framing and movement from the neighbouring shots.',
+        isAd(s) && 'Shots marked with a hook letter are alternative openings: each must work as the first shot of the ad on its own.',
         'Reply with JSON only: {"shot": "...", "beats": "...", "performance": "...", "move": "...", "environment": "...", "sound": "...", "text": "", "transition": "..."}',
         'Write in the language of the series.',
-      ].join('\n\n'), `Plan shot ${i + 1} of ${scenes.length}.\n${context}`)
+      ].filter(Boolean).join('\n\n'), `Plan shot ${i + 1} of ${scenes.length}${sc.hook ? ` (hook ${sc.hook})` : ''}, this one:\n${JSON.stringify(plain([sc])[0])}\n\nAll the shots, for context:\n${context}`)
       const raw = json<any>(text)
-      return { plan: planFrom(raw.plan ?? raw), by }
+      const plan = planFrom(raw.plan ?? raw)
+      return { plan: plan && { ...plan, ...(!plan.text && sc.plan?.text && { text: sc.plan.text }) }, by }
     } catch (e) {
       errors.push(e)
       return undefined
@@ -256,17 +381,17 @@ export async function directScript(s: Series, index: number, scenes: Scene[]): P
   }), 5)
   const done = results.filter((r) => r?.plan)
   if (!done.length && errors.length) throw errors[0]
-  return { plans: results.map((r) => r?.plan), by: done.find((r) => r!.by !== writerOf(s))?.by ?? writerOf(s), failed: results.filter((r, i) => !scenes[i].plan && !r?.plan).length }
+  return { plans: results.map((r) => r?.plan), by: done.find((r) => r!.by !== writerOf(s))?.by ?? writerOf(s), failed: results.filter((r, i) => !planned(scenes[i]) && !r?.plan).length }
 }
 
 // Rewrites one shot (and its plan) to be stronger, in context, optionally following your note.
 export async function improveScene(s: Series, index: number, scenes: Scene[], at: number, note: string): Promise<{ scene: Scene; by: string }> {
   const { text, by } = await write(s, [
-    'You are the director of a vertical short series. Make one shot stronger: sharper action and lines, a richer, filmable plan. Keep it in the story and in continuity with the shots around it.',
-    CRAFT,
-    DIRECTION,
+    `You are the director of ${role(s)}. Make one shot stronger: sharper action and lines, a richer, filmable plan. Keep it in the ${isAd(s) ? 'ad' : 'story'} and in continuity with the shots around it.`,
+    craft(s),
+    direction(s),
     storySoFar(s, index),
-    `Reply with JSON only, just this shot:\n${DIRECTED_JSON.replace('{"scenes": [', '').replace(/\]\}$/, '')}`,
+    `Reply with JSON only, just this shot:\n${directedJson(s).replace('{"scenes": [', '').replace(/\]\}$/, '')}`,
     'Write in the language of the series.',
   ].join('\n\n'), JSON.stringify({ shotToImprove: at + 1, note: note || 'make it better', scenes: plain(scenes) }))
   const raw = json<any>(text)
@@ -278,13 +403,14 @@ export async function improveScene(s: Series, index: number, scenes: Scene[], at
 // A change you asked for ("make Lala the one who breaks the machine"), applied to the whole script, plans included.
 export async function reviseScript(s: Series, index: number, scenes: Scene[], change: string): Promise<Scene[]> {
   const { text } = await write(s, [
-    'You revise one episode of a vertical short series. Apply the requested change and keep everything else as it is, shot plans included (update them where the change needs it).',
-    CRAFT,
+    `You revise one ${isAd(s) ? 'ad of a set of organic product videos' : 'episode of a vertical short series'}. Apply the requested change and keep everything else as it is, shot plans included (update them where the change needs it).`,
+    craft(s),
+    isAd(s) && 'Keep each shot\'s "hook" letter (alternative openings) and "seconds".',
     storySoFar(s, index),
     `Current episode:\n${JSON.stringify({ scenes: plain(scenes) })}`,
-    `Reply with the full revised episode, JSON only:\n${DIRECTED_JSON}`,
+    `Reply with the full revised ${isAd(s) ? 'ad' : 'episode'}, JSON only:\n${directedJson(s)}`,
     'Never more than 15 shots, at most 2 lines per shot. Write in the language of the series.',
-  ].join('\n\n'), change)
+  ].filter(Boolean).join('\n\n'), change)
   return scenesFrom(json(text))
 }
 
@@ -292,10 +418,12 @@ export async function reviseScript(s: Series, index: number, scenes: Scene[], ch
 // A short idea becomes hook, turn and punchline; a detailed script keeps every line, name, fact and timing, tidied into beats.
 export async function improveSummary(s: Series, index: number, text: string) {
   return complete(WRITER, [
-    'You edit the brief for one episode of a vertical short series; a script will be written from it.',
+    `You edit the brief for one ${isAd(s) ? 'organic product ad' : 'episode of a vertical short series'}; a script will be written from it.`,
     storySoFar(s, index),
-    `This is episode ${index + 1}, about ${s.seconds} seconds.`,
-    'If the brief is short or vague: rewrite it as 2-4 sentences with a hook in the first seconds, a clear turn and a punchline or cliffhanger, consistent with the story so far.',
+    isAd(s) ? `This is ad ${index + 1}, about ${s.seconds} seconds.${formatOf(s.episodes[index].format) ? ` Format: ${formatOf(s.episodes[index].format)!.name}.` : ''}` : `This is episode ${index + 1}, about ${s.seconds} seconds.`,
+    isAd(s)
+      ? 'If the brief is short or vague: rewrite it as 2-3 sentences: the hook (with its on-screen text), the moment the product works on camera, the payoff and a soft call to action, different from the other ads.'
+      : 'If the brief is short or vague: rewrite it as 2-4 sentences with a hook in the first seconds, a clear turn and a punchline or cliffhanger, consistent with the story so far.',
     'If it is already detailed (beats, timings, dialogue): keep every line of dialogue, name, fact and timing exactly; only tidy it into clear numbered beats and fix gaps.',
     'Reply with the brief only: plain text (no Markdown, no bold), no preamble, in the language it was written in.',
   ].join('\n\n'), text.trim() || '(empty: propose a strong next episode)')

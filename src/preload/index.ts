@@ -37,7 +37,9 @@ const api = {
   restoreSeries: (id: string): Promise<void> => ipcRenderer.invoke('series:restore', id),
   writeSeries: (idea: string, episodes: number, seconds: number, cast: string[], style?: { text?: string; refs?: Attachment[] }, elements?: string[]): Promise<{ series: Series; created: Character[] }> =>
     ipcRenderer.invoke('series:write', idea, episodes, seconds, cast, style, elements),
-  writeScript: (s: Series, index: number): Promise<{ beats: string; scenes: Scene[]; by: string }> => ipcRenderer.invoke('series:script', s, index),
+  writeAds: (product: { description: string; photo?: Attachment }, ads: number, seconds: number, cast: string[], elements: string[]): Promise<{ series: Series; created: Character[] }> =>
+    ipcRenderer.invoke('ads:write', product, ads, seconds, cast, elements),
+  writeScript: (s: Series, index: number): Promise<{ beats: string; scenes: Scene[]; by: string; format?: string }> => ipcRenderer.invoke('series:script', s, index),
   directScript: (s: Series, index: number, scenes: Scene[]): Promise<{ plans: (ShotPlan | undefined)[]; by: string; failed: number }> => ipcRenderer.invoke('series:direct', s, index, scenes),
   improveScene: (s: Series, index: number, scenes: Scene[], at: number, note = ''): Promise<{ scene: Scene; by: string }> => ipcRenderer.invoke('series:improveScene', s, index, scenes, at, note),
   reviseScript: (s: Series, index: number, scenes: Scene[], change: string): Promise<Scene[]> => ipcRenderer.invoke('series:revise', s, index, scenes, change),
