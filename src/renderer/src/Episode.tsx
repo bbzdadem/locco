@@ -1,11 +1,11 @@
-import { ArrowRight, Check, Mic, Coins, Smile, ChevronLeft, ChevronRight, Clapperboard, Download, FileText, Film, ImagePlus, LoaderCircle, Plus, RotateCcw, Square, TriangleAlert, Wand2, X } from 'lucide-react'
+import { ArrowRight, Check, ListChecks, Mic, Coins, Smile, ChevronLeft, ChevronRight, Clapperboard, Download, FileText, Film, ImagePlus, LoaderCircle, Plus, RotateCcw, Square, TriangleAlert, Wand2, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { AD_FORMATS, adShots, adVersions, playing } from '../../shared/ads'
 import { buildInput } from '../../shared/inputs'
 import { chatModel, ELEVEN_VOICES, withBest } from '../../shared/models'
 import { estimate, priceLabel, USD_PER_CREDIT } from '../../shared/prices'
 import { sceneTarget } from '../../shared/timing'
-import type { Character, Episode, Scene, Series, ShotPlan, Step } from '../../shared/types'
+import type { Character, Episode, ReviewIssue, Scene, Series, ShotPlan, Step } from '../../shared/types'
 import { Avatar } from './Characters'
 import { Media } from './Create'
 import { buildEpisodeProject, episodeProject, toProjectRender } from './Studio'
@@ -104,6 +104,15 @@ const PLAN_FIELDS: [keyof ShotPlan, string, string][] = [
   ['transition', 'Transition', 'Smash cut, match cut, whip, cut on action'],
 ]
 const writerLabel = (id: string) => chatModel(id).label
+// The reviewer is a different model from the writer, so no one grades their own work.
+const reviewerOf = (writer: string) => (writer === 'gpt-6-sol' ? 'claude-sonnet-5-5' : 'gpt-6-sol')
+// A fingerprint of what the reviewer reads, so an edited script shows that its review is out of date.
+function scriptKey(scenes: Scene[]) {
+  let h = 5381
+  for (const ch of JSON.stringify(scenes.map((sc) => [sc.hook, sc.place, sc.action, sc.cast, sc.lines.map((l) => [l.speaker, l.text]), sc.plan, sc.seconds])))
+    h = Math.imul(h, 33) ^ ch.charCodeAt(0)
+  return (h >>> 0).toString(36)
+}
 
 function ScriptStep({ s, ep, index, cast, things, run, rk: k, setEp, go }: StepProps) {
   const [change, setChange] = useState('')
@@ -117,6 +126,20 @@ function ScriptStep({ s, ep, index, cast, things, run, rk: k, setEp, go }: StepP
   const notes = (...n: (string | undefined)[]) => n.filter(Boolean).join(' ') || undefined
   const missed = (n: number) => (n ? `${n} shot${n > 1 ? 's' : ''} didn't get a plan (the writer didn't answer); press Plan ${n} shot${n > 1 ? 's' : ''} to try again.` : undefined)
   const hasMedia = ep.scenes.some((sc) => sc.frameTask || sc.videoTask || sc.lines.some((l) => l.voiceTask))
+  const latest = () => getSeries(s.id).episodes.find((e) => e.id === ep.id)!
+  const reviewing = (by = writer) => `Reviewer: checking the whole ${ad ? 'ad' : 'episode'} (${writerLabel(reviewerOf(by))})…`
+
+  // Pass 3: the reviewer reads the latest script; its shot labels are saved as scene ids so they survive edits.
+  async function runReview(writtenBy?: string) {
+    const scenes = latest().scenes
+    const out = await api.reviewScript(getSeries(s.id), index, scenes, writtenBy)
+    const ids = new Map(scenes.map((sc) => [tagOf(scenes, sc), sc.id]))
+    await setEp((e) => void (e.review = {
+      verdict: out.verdict, summary: out.summary, by: out.by, at: Date.now(), key: scriptKey(scenes),
+      issues: out.issues.map((x) => ({ ...x, shots: x.shots.flatMap((t) => ids.get(t) ?? []) })),
+    }))
+  }
+  const review = () => step(k, reviewing(), () => runReview())
 
   const write = () => step(k, `Writers' room: beat sheet and shots (${writerLabel(writer)})…`, async () => {
     const draft = await api.writeScript(getSeries(s.id), index)
@@ -124,7 +147,10 @@ function ScriptStep({ s, ep, index, cast, things, run, rk: k, setEp, go }: StepP
     setRun(k, { step: `Director: planning ${draft.scenes.length} shots…` })
     const directed = await api.directScript(getSeries(s.id), index, draft.scenes)
     await setEp((e) => e.scenes.forEach((sc, i) => (sc.plan = directed.plans[i] ?? sc.plan)))
-    return notes(missed(directed.failed), fellBack(directed.by) ?? fellBack(draft.by))
+    const wrote = draft.by.split('|')[0]
+    setRun(k, { step: reviewing(wrote) })
+    const unreviewed = await runReview(wrote).then(() => undefined, (e) => `The reviewer didn't answer (${errMsg(e)}); press Review to try again.`)
+    return notes(missed(directed.failed), fellBack(directed.by) ?? fellBack(draft.by), unreviewed)
   })
   // Plans for the shots that have none (written before the director pass, added later, or missed). The story stays as it is.
   const addPlans = () => step(k, `Director: planning ${unplanned} shot${unplanned > 1 ? 's' : ''}…`, async () => {
@@ -132,13 +158,46 @@ function ScriptStep({ s, ep, index, cast, things, run, rk: k, setEp, go }: StepP
     await setEp((e) => e.scenes.forEach((sc, i) => (sc.plan = out.plans[i] ?? sc.plan)))
     return notes(missed(out.failed), fellBack(out.by))
   })
-  const improve = (sc: Scene, note: string) => step(k, `Improving ${nameOf(ep.scenes, sc).toLowerCase()}…`, async () => {
-    const out = await api.improveScene(getSeries(s.id), index, ep.scenes, ep.scenes.indexOf(sc), note)
+  const improveOne = async (sc: Scene, note: string) => {
+    const scenes = latest().scenes
+    const out = await api.improveScene(getSeries(s.id), index, scenes, scenes.findIndex((x) => x.id === sc.id), note)
     const media = !!(sc.frameTask || sc.videoTask || sc.lines.some((l) => l.voiceTask))
     // A shot that already has pictures or voices keeps its story; only the plan changes.
     await setScene(sc.id, (x) => Object.assign(x, media ? { plan: out.scene.plan } : { ...out.scene, id: x.id, hook: x.hook }))
     return fellBack(out.by)
+  }
+  const improve = (sc: Scene, note: string) => step(k, `Improving ${nameOf(ep.scenes, sc).toLowerCase()}…`, () => improveOne(sc, note))
+
+  // The reviewer's notes, applied. A note inside one shot improves that shot; a note about the whole script revises it
+  // (once pictures exist, the shots it names are improved one by one instead). Shots left without a plan get one.
+  const shotsOf = (it: ReviewIssue) => it.shots.flatMap((id) => latest().scenes.find((x) => x.id === id) ?? [])
+  const noteOf = (it: ReviewIssue) =>
+    `Reviewer's note${shotsOf(it).length ? ` on ${shotsOf(it).map((sc) => nameOf(latest().scenes, sc).toLowerCase()).join(', ')}` : ''}: ${it.problem} Change: ${it.fix}`
+  async function apply(list: ReviewIssue[]) {
+    const whole = list.filter((it) => it.scope === 'script' || shotsOf(it).length !== 1)
+    const left = whole.filter((it) => hasImages && !shotsOf(it).length)
+    for (const it of list.filter((x) => !whole.includes(x))) await improveOne(shotsOf(it)[0], noteOf(it)) // single shots first: a revision renews the ids
+    if (whole.length && !hasImages) {
+      const scenes = await api.reviseScript(getSeries(s.id), index, latest().scenes, `Apply the reviewer's notes:\n${whole.map((it, n) => `${n + 1}. ${noteOf(it)}`).join('\n')}`)
+      await setEp((e) => void (e.scenes = scenes))
+    } else for (const it of whole) for (const sc of shotsOf(it)) await improveOne(sc, noteOf(it))
+    if (latest().scenes.some((sc) => !sc.plan?.shot)) {
+      const d = await api.directScript(getSeries(s.id), index, latest().scenes)
+      await setEp((e) => e.scenes.forEach((sc, i) => (sc.plan = d.plans[i] ?? sc.plan)))
+    }
+    const done = list.filter((it) => !left.includes(it))
+    await setEp((e) => e.review?.issues.forEach((x) => done.some((it) => it.problem === x.problem && it.fix === x.fix) && (x.done = true)))
+    return left.length ? `${left.length} note${left.length > 1 ? 's need' : ' needs'} whole-script changes, which are off once scene images exist; edit those shots directly.` : undefined
+  }
+  const open = ep.review?.issues.filter((it) => !it.done) ?? []
+  const fix = (it: ReviewIssue) => step(k, "Applying the reviewer's note…", () => apply([it]))
+  const fixAll = () => step(k, `Applying ${open.length} notes…`, async () => {
+    const note = await apply(open)
+    setRun(k, { step: reviewing() })
+    await runReview()
+    return note
   })
+  const stale = !!ep.review && ep.review.key !== scriptKey(ep.scenes)
   const revise = () => step(k, 'Revising the script…', async () => {
     const scenes = await api.reviseScript(getSeries(s.id), index, ep.scenes, change)
     await setEp((e) => void (e.scenes = scenes))
@@ -162,15 +221,17 @@ function ScriptStep({ s, ep, index, cast, things, run, rk: k, setEp, go }: StepP
         <FileText size={22} className="text-muted" />
         {ad ? (
           <p className="max-w-lg text-muted">
-            Two passes. The writer plans the ad as a beat sheet (hook, problem, the product working, proof, call to action) and writes three
+            Three passes. The writer plans the ad as a beat sheet (hook, problem, the product working, proof, call to action) and writes three
             alternative hook shots plus the shots every hook leads into. Then the director plans each shot as phone footage: POV hands, macro,
-            top-down, reaction close-ups, with on-screen text. You approve it before anything is drawn. Takes a minute or two.
+            top-down, reaction close-ups, with on-screen text. Then a reviewer (a different model) checks the hooks, flow, pacing and honesty and lists
+            what to fix. You approve it before anything is drawn. Takes two or three minutes.
           </p>
         ) : (
         <p className="max-w-lg text-muted">
-          Two passes. The writers' room plans the episode as a beat sheet built for TikTok and Reels (hook in 2 seconds, a turn every few seconds, a payoff)
+          Three passes. The writers' room plans the episode as a beat sheet built for TikTok and Reels (hook in 2 seconds, a turn every few seconds, a payoff)
           and writes it as shots of 2–4 seconds. Then the director plans every shot (framing, lens, action over time, performance, camera move, light,
-          weather, sound) and reviews the whole against a checklist. You approve it before anything is drawn. Takes a minute or two.
+          weather, sound). Then a reviewer (a different model) reads the whole as one video (hook, flow, pacing, continuity) and lists what to fix.
+          You approve it before anything is drawn. Takes two or three minutes.
         </p>
         )}
         <div className="flex items-center gap-2">
@@ -191,8 +252,55 @@ function ScriptStep({ s, ep, index, cast, things, run, rk: k, setEp, go }: StepP
             <Clapperboard size={13} /> Plan {unplanned} shot{unplanned > 1 ? 's' : ''}
           </button>
         )}
+        {!ep.review && (
+          <button type="button" disabled={busy(run)} onClick={review} className={secondary} title="A different model reads the whole script as one video and lists what to fix">
+            <ListChecks size={13} /> Review the script
+          </button>
+        )}
         <span className="ml-auto text-xs text-faint tabular-nums">{ep.scenes.length} shots · {sum(ep.scenes.map((sc) => sc.lines.length))} lines</span>
       </div>
+      {ep.review && (
+        <div className="flex flex-col gap-2 rounded-2xl border border-line bg-surface p-3">
+          <div className="flex items-start gap-3">
+            <span className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium ${ep.review.verdict === 'ready' ? 'bg-inverse text-on-inverse' : 'border border-fg text-fg'}`}>
+              {ep.review.verdict === 'ready' ? <><Check size={12} /> Ready</> : <><TriangleAlert size={12} /> Fix first</>}
+            </span>
+            <div className="flex min-w-0 flex-1 flex-col gap-0.5 pt-1">
+              <p className="text-[13px] leading-relaxed">{ep.review.summary}</p>
+              <span className="text-xs text-faint">Reviewed by {writerLabel(ep.review.by.split('|')[0])}{stale && ' · the script has changed since, review again to check it'}</span>
+            </div>
+            <button type="button" disabled={busy(run)} onClick={review} className={secondary}><ListChecks size={13} /> Review again</button>
+          </div>
+          {ep.review.issues.map((it, i) => {
+            const named = it.shots.flatMap((id) => ep.scenes.filter((x) => x.id === id))
+            const hooks = named.flatMap((x) => x.hook ?? [])
+            const tags = [...(hooks.length ? [`Hook${hooks.length > 1 ? 's' : ''} ${hooks.join(', ')}`] : []), ...named.filter((x) => !x.hook).map((x) => tagOf(ep.scenes, x))]
+            return (
+              <div key={i} className={`flex items-start gap-3 rounded-xl bg-raised/60 px-3 py-2 text-[13px] ${it.done ? 'opacity-50' : ''}`}>
+                <span className="flex w-24 shrink-0 flex-wrap content-start gap-1 pt-0.5">
+                  {tags.length ? tags.map((t) => <span key={t} className="rounded bg-surface px-1.5 text-[11px] leading-5 tabular-nums">{t}</span>)
+                    : <span className="text-[11px] leading-5 text-faint">{it.scope === 'script' ? 'Whole script' : ''}</span>}
+                </span>
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <p className="leading-relaxed">{it.problem}</p>
+                  <p className="leading-relaxed text-muted">Fix: {it.fix}</p>
+                </div>
+                {it.done ? <span className="shrink-0 pt-1 text-xs text-muted">Fixed</span> : (
+                  <button type="button" disabled={busy(run)} onClick={() => fix(it)} className={secondary}
+                    title={it.scope === 'script' || it.shots.length !== 1 ? (hasImages ? 'Improves the shots it names' : 'Revises the script with this note') : 'Improves this shot with this note'}>
+                    <Wand2 size={13} /> Fix
+                  </button>
+                )}
+              </div>
+            )
+          })}
+          {open.length > 1 && (
+            <button type="button" disabled={busy(run)} onClick={fixAll} className={`${secondary} w-fit`}>
+              <Wand2 size={13} /> Fix all {open.length} and review again
+            </button>
+          )}
+        </div>
+      )}
       {ep.beats && (
         <details className="rounded-2xl border border-line bg-surface p-3">
           <summary className="cursor-pointer text-[13px] font-medium select-none">Beat sheet</summary>
@@ -542,7 +650,7 @@ function costOf(s: Series, ep: Episode, t: Tasks) {
   const lips = (sec: number) => estimate('lip-sync', { duration: clipFor(vm, sec) })?.hi ?? 0
   const talks = (sc?: Scene) => !sc || (sc.lines.some((l) => sc.cast.some((n) => n.trim().toLowerCase() === l.speaker.trim().toLowerCase())) && ['none', 'fail'].includes(syncState(t, sc)))
   const left: [string, number][] = [
-    ['Script', ep.scenes.length ? 0 : 4 + 0.4 * n], // ponytail: measured averages (writers' room ~4, director ~0.4 a shot); Claude may differ
+    ['Script', ep.scenes.length ? 0 : 6 + 0.4 * n], // ponytail: measured averages (writers' room ~4, director ~0.4 a shot, reviewer ~2); Claude may differ
     ['Scene images', sum(shots.filter((x) => !x.sc || needs(t, x.sc.frameTask)).map(() => image))],
     ['Videos', sum(shots.filter((x) => !x.sc || needs(t, x.sc.videoTask)).map((x) => video(x.seconds)))],
     ['Music', ep.music !== false && needs(t, ep.musicTask) ? (estimate('suno', {})?.hi ?? 0) : 0],

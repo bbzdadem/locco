@@ -161,9 +161,15 @@ export type Scene = {
 // Episodes move through the steps in order; script and scenes wait for your approval.
 export type Step = 'script' | 'scenes' | 'voices' | 'video' | 'cut'
 // cuts: earlier renders, oldest first (the Edit section's exports land here too).
+// The reviewer's read of a script, before anything is drawn: a verdict, how it flows, and what to fix. Each issue names
+// its shots (scene ids once saved; the reviewer answers with shot labels) and is either inside one shot or about the
+// whole script. key fingerprints the script it read, so an edited script shows the review is out of date.
+export type ReviewIssue = { shots: string[]; scope: 'shot' | 'script'; problem: string; fix: string; done?: boolean }
+export type Review = { verdict: 'ready' | 'fix'; summary: string; issues: ReviewIssue[]; by: string; at: number; key: string }
 // format and adCuts are for ads: the ad's format (see AD_FORMATS) and one finished video per hook.
 export type Episode = {
   beats?: string
+  review?: Review
   format?: string
   adCuts?: string[]
   id: string; title: string; summary: string; step: Step; scenes: Scene[]; recap?: string; music?: boolean; musicTask?: string; cut?: string; cuts?: string[]

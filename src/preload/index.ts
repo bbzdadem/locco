@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { Attachment, Character, Chat, ChatEvent, ChatHit, EditProject, GenerateRequest, MediaKind, Message, Project, ProjectRender, Ref, RenderRequest, Scene, SendRequest, Series, ShotPlan, Settings, Task, UsageRow } from '../shared/types'
+import type { Attachment, Character, Chat, ChatEvent, ChatHit, EditProject, GenerateRequest, MediaKind, Message, Project, ProjectRender, Ref, RenderRequest, ReviewIssue, Scene, SendRequest, Series, ShotPlan, Settings, Task, UsageRow } from '../shared/types'
 
 type Voice = { id: string; name: string; about: string; premade?: boolean }
 
@@ -42,6 +42,8 @@ const api = {
   writeScript: (s: Series, index: number): Promise<{ beats: string; scenes: Scene[]; by: string; format?: string }> => ipcRenderer.invoke('series:script', s, index),
   directScript: (s: Series, index: number, scenes: Scene[]): Promise<{ plans: (ShotPlan | undefined)[]; by: string; failed: number }> => ipcRenderer.invoke('series:direct', s, index, scenes),
   improveScene: (s: Series, index: number, scenes: Scene[], at: number, note = ''): Promise<{ scene: Scene; by: string }> => ipcRenderer.invoke('series:improveScene', s, index, scenes, at, note),
+  reviewScript: (s: Series, index: number, scenes: Scene[], writtenBy?: string): Promise<{ verdict: 'ready' | 'fix'; summary: string; issues: ReviewIssue[]; by: string }> =>
+    ipcRenderer.invoke('series:review', s, index, scenes, writtenBy),
   reviseScript: (s: Series, index: number, scenes: Scene[], change: string): Promise<Scene[]> => ipcRenderer.invoke('series:revise', s, index, scenes, change),
   writeRecap: (s: Series, index: number): Promise<{ recap: string; continuity: string }> => ipcRenderer.invoke('series:recap', s, index),
   improveSummary: (s: Series, index: number, text: string): Promise<string> => ipcRenderer.invoke('series:improve', s, index, text),

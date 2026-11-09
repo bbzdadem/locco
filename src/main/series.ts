@@ -5,10 +5,10 @@ import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { AD_FORMATS, adShots, formatOf, HOOKS } from '../shared/ads'
+import { AD_FORMATS, adShots, adVersions, formatOf, HOOKS } from '../shared/ads'
 import { ELEVEN_VOICES } from '../shared/models'
-import { clipLength, sceneTarget } from '../shared/timing'
-import type { Attachment, Character, Episode, Ref, RenderRequest, Scene, Series, ShotPlan } from '../shared/types'
+import { clipLength, sceneTarget, timing } from '../shared/timing'
+import type { Attachment, Character, Episode, Ref, RenderRequest, ReviewIssue, Scene, Series, ShotPlan } from '../shared/types'
 import { complete } from './chat'
 import { db, dirs } from './db'
 import { pathOf } from './media'
@@ -109,8 +109,7 @@ const writerOf = (s: Series) => s.writer ?? 'claude-sonnet-5-5'
 // When kie's Claude fails (it has outages), skip it for 10 minutes instead of spending ~20 s of retries on every call.
 let claudeDownUntil = 0
 let claudeWhy = ''
-async function write(s: Series, system: string, user: string) {
-  const first = writerOf(s)
+async function write(s: Series, system: string, user: string, first = writerOf(s)) {
   const skip = first !== 'gpt-6-sol' && Date.now() < claudeDownUntil
   if (!skip) {
     try {
@@ -414,6 +413,54 @@ export async function improveScene(s: Series, index: number, scenes: Scene[], at
 }
 
 // A change you asked for ("make Lala the one who breaks the machine"), applied to the whole script, plans included.
+// Pass 3, the reviewer: reads the whole script as one video, with its real timing, and lists what would hurt it, each
+// problem tied to its shots with a concrete fix. A different model from the writer, so no one grades their own work.
+const reviewerOf = (writer: string) => (writer === 'gpt-6-sol' ? 'claude-sonnet-5-5' : 'gpt-6-sol')
+const AD_REVIEW = [
+  'Hooks: each hook works as the first shot on its own, is about the product or its problem within 2 s, has on-screen text, and the three use different hook families.',
+  'Flow: problem → the product working → proof (a result, a reaction or a test) → a soft call to action or a loop; nothing missing, nothing out of order; every shot shows something new.',
+  'Product: it appears and is named exactly where it matters, and is shown working on camera, not just described or held up.',
+  'Pacing: no shot over 4 s; each version (one hook and the shots after it) within about 20% of the target length; every line short enough to say in its shot (about 2.5 words a second).',
+  'Honesty: nothing breaks the brief\'s "Never claim" list; no invented reviews, ratings, statistics, prices or health claims; a before/after is realistic.',
+  'Continuity and variety: place, props, light and what the hands hold carry over between shots; framing varies (never three similar shots in a row); on-screen text is short (3-8 words).',
+]
+const SERIES_REVIEW = [
+  'Hook: the first shot grabs within 2 s with a striking image or a question.',
+  'Flow: setup → escalation with a turn every 3-5 s → payoff or twist → a button (punchline, cliffhanger or loop); every shot changes something; no two shots say the same thing.',
+  'Story: consistent with the story bible, the continuity notes and earlier episodes; characters act in character; cast, places and things are named exactly.',
+  'Pacing: the total within about 20% of the target; at most 2 lines per shot, each short enough to say in its shot (about 2.5 words a second).',
+  'Craft: shot sizes and angles vary; plans are filmable (one camera move, concrete light and action); dialogue is natural, not on-the-nose.',
+]
+// writtenBy: who actually wrote the script (the writer's fallback may have stepped in); the reviewer is the other model.
+export async function reviewScript(s: Series, index: number, scenes: Scene[], writtenBy = writerOf(s)): Promise<{ verdict: 'ready' | 'fix'; summary: string; issues: ReviewIssue[]; by: string }> {
+  const ep = s.episodes[index]
+  const ad = isAd(s)
+  const f = formatOf(ep.format)
+  const label = (sc: Scene) => sc.hook ?? String(scenes.filter((x) => !x.hook).indexOf(sc) + 1)
+  const length = (list: Scene[]) => +list.reduce((t, sc) => t + timing(sc).seconds, 0).toFixed(1)
+  const written = plain(scenes)
+  const shots = scenes.map((sc, i) => ({ shot: label(sc), seconds: +timing(sc).seconds.toFixed(1), ...written[i] }))
+  const lengths = ad ? adVersions({ scenes }).map((v) => ({ version: v.hook ? `hook ${v.hook}` : 'the ad', seconds: length(v.scenes) })) : [{ version: 'the episode', seconds: length(scenes) }]
+  const { text, by } = await write(s, [
+    `You are the reviewer of ${role(s)}. Before anything is drawn, check the whole ${ad ? 'ad' : 'episode'} as one video: does it hook, flow, hold and pay off?`,
+    craft(s),
+    storySoFar(s, index),
+    f && `Format: ${f.name}. ${f.beats}`,
+    `Target length: about ${s.seconds} seconds${ad ? ' for each version (one hook followed by the shots without a hook)' : ''}. Shot lengths come from their lines (or their own seconds when silent).`,
+    `Check:\n${(ad ? AD_REVIEW : SERIES_REVIEW).map((c) => `- ${c}`).join('\n')}`,
+    'Report only real problems that would hurt retention, clarity, continuity or honesty, not matters of taste: most important first, at most 8. Each names its shots by their "shot" label, says what is wrong and why it hurts, and gives the concrete change to make. scope is "shot" when the fix stays inside one shot, "script" when it needs shots added, removed, reordered or changed together.',
+    'verdict is "ready" only when nothing you list would noticeably hurt the video.',
+    'Reply with JSON only: {"verdict": "ready or fix", "summary": "1-2 sentences on how the video flows as a whole", "issues": [{"shots": ["A", "3"], "scope": "shot or script", "problem": "...", "fix": "..."}]}',
+    languageOf(s),
+  ].filter(Boolean).join('\n\n'), JSON.stringify({ title: ep.title, brief: ep.summary, beats: ep.beats, lengths, shots }), reviewerOf(writtenBy))
+  const out = json<any>(text)
+  const issues: ReviewIssue[] = (Array.isArray(out.issues) ? out.issues : []).slice(0, 8).map((x: any) => ({
+    shots: (Array.isArray(x.shots) ? x.shots : [x.shots]).map((t: unknown) => str(t).replace(/^(shot|hook)\s*/i, '').toUpperCase()).filter(Boolean),
+    scope: x.scope === 'script' ? 'script' : 'shot', problem: str(x.problem), fix: str(x.fix),
+  })).filter((x: ReviewIssue) => x.problem)
+  return { verdict: out.verdict === 'ready' || !issues.length ? 'ready' : 'fix', summary: str(out.summary), issues, by }
+}
+
 export async function reviseScript(s: Series, index: number, scenes: Scene[], change: string): Promise<Scene[]> {
   const { text } = await write(s, [
     `You revise one ${isAd(s) ? 'ad of a set of organic product videos' : 'episode of a vertical short series'}. Apply the requested change and keep everything else as it is, shot plans included (update them where the change needs it).`,
