@@ -48,6 +48,7 @@ const api = {
   saveCharacter: (c: Character): Promise<void> => ipcRenderer.invoke('characters:save', c),
   deleteCharacter: (id: string): Promise<void> => ipcRenderer.invoke('characters:delete', id),
   mediaSeconds: (file: string | Ref): Promise<number> => ipcRenderer.invoke('media:seconds', file),
+  voiceTrack: (video: string, voices: { file: string; at: number }[]): Promise<string> => ipcRenderer.invoke('series:voiceTrack', video, voices),
   thumb: (ref: Ref): Promise<Ref> => ipcRenderer.invoke('media:thumb', ref),
   edits: (): Promise<EditProject[]> => ipcRenderer.invoke('edits:list'),
   saveEdit: (p: EditProject): Promise<void> => ipcRenderer.invoke('edits:save', p),

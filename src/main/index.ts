@@ -16,8 +16,7 @@ import { credits, setKey } from './kie'
 import { mimeOf, pathOf, saveUpload } from './media'
 import {
   deleteCharacter, deletedSeries, deleteSeries, listCharacters, listSeries, mediaSeconds, render, restoreSeries, reviseScript, saveCharacter, saveSeries,
-  directScript, improveScene, improveSummary, writeRecap, writeScript, writeSeries,
-} from './series'
+  directScript, improveScene, improveSummary, writeRecap, writeScript, voiceTrack, writeSeries } from './series'
 import { generate, listTasks, removeTask, starTask, startPoller, transcribe } from './tasks'
 
 let win: BrowserWindow | null = null
@@ -192,6 +191,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('characters:save', (_e, c: Character) => saveCharacter(c))
   ipcMain.handle('characters:delete', (_e, id: string) => deleteCharacter(id))
   ipcMain.handle('media:seconds', (_e, file: string | Ref) => mediaSeconds(file))
+  ipcMain.handle('series:voiceTrack', (_e, video: string, voices: { file: string; at: number }[]) => voiceTrack(video, voices))
   ipcMain.handle('media:thumb', (_e, ref: Ref) => thumb(ref))
   ipcMain.handle('edits:list', listEdits)
   ipcMain.handle('edits:save', (_e, p: EditProject) => saveEdit(p))

@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { ELEVEN_VOICES } from '../shared/models'
-import { clipLength } from '../shared/timing'
+import { clipLength, sceneTarget } from '../shared/timing'
 import type { Attachment, Character, Episode, Ref, RenderRequest, Scene, Series, ShotPlan } from '../shared/types'
 import { complete } from './chat'
 import { db, dirs } from './db'
@@ -77,9 +77,6 @@ const voiceId = (name?: string) => ELEVEN_VOICES.find((v) => v.name.toLowerCase(
 const voiceList = () => ELEVEN_VOICES.slice(0, 60).map((v) => (v.about ? `${v.name} (${v.about})` : v.name)).join('; ') || 'none (leave voice empty)'
 const castText = (cast: Character[]) => cast.map((c) => `${c.name}: ${c.personality}. Looks: ${c.look}`).join('\n') || 'none yet'
 const elementText = (els: Character[]) => els.map((e) => `${e.name} (${e.category ?? 'thing'}): ${e.look}`).join('\n') || 'none yet'
-// About 4 seconds a scene, never more than 15 scenes an episode.
-// Shots of about 3 seconds (social pacing), at least 5, at most 15.
-export const sceneTarget = (seconds: number) => Math.max(5, Math.min(15, Math.round(seconds / 3)))
 
 const str = (v: unknown) => String(v ?? '').trim()
 function planFrom(p: any): ShotPlan | undefined {
@@ -327,6 +324,17 @@ export async function probe(path: string) {
   const d = /Duration: (\d+):(\d+):([\d.]+)/.exec(err)
   return { seconds: d ? Number(d[1]) * 3600 + Number(d[2]) * 60 + Number(d[3]) : 0, audio: /Stream #\S+.*Audio:/.test(err) }
 }
+// One shot's voices laid on its clip's timeline (silence elsewhere), as long as the clip: the audio lip sync follows.
+export async function voiceTrack(video: string, voices: { file: string; at: number }[]) {
+  const seconds = (await probe(join(dirs.media, video))).seconds
+  const out = `voices-${randomUUID()}.wav`
+  const delayed = voices.map((v, i) => `[${i + 1}:a]aformat=sample_rates=44100:channel_layouts=mono,adelay=${Math.round(v.at * 1000)}:all=1[v${i}]`)
+  const mix = `[0:a]${voices.map((_, i) => `[v${i}]`).join('')}amix=inputs=${voices.length + 1}:normalize=0:duration=first[out]`
+  await run(ffmpeg(), ['-y', '-f', 'lavfi', '-t', seconds.toFixed(3), '-i', 'anullsrc=r=44100:cl=mono', ...voices.flatMap((v) => ['-i', join(dirs.media, v.file)]),
+    '-filter_complex', [...delayed, mix].join(';'), '-map', '[out]', '-t', seconds.toFixed(3), '-c:a', 'pcm_s16le', join(dirs.media, out)])
+  return out
+}
+
 // Length of a file in locco's media folder (a name) or of any stored file (a Ref: your uploads included).
 export const mediaSeconds = async (file: string | Ref) => (await probe(typeof file === 'string' ? join(dirs.media, file) : pathOf(file))).seconds
 

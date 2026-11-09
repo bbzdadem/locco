@@ -11,6 +11,9 @@ export function timing(scene: Pick<Scene, 'lines'>) {
   return { voices, seconds: Math.max(2.5, scene.lines.length ? at + 0.3 : 3) }
 }
 
+// Shots of about 3 seconds (social pacing), at least 5, at most 15.
+export const sceneTarget = (seconds: number) => Math.max(5, Math.min(15, Math.round(seconds / 3)))
+
 // Shortest clip length (from what the model offers) that covers the scene; the longest one if none does.
 export const clipFor = (lengths: number[], seconds: number) => lengths.find((n) => n >= seconds) ?? lengths.at(-1) ?? 5
 

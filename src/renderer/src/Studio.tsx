@@ -9,7 +9,7 @@ import type { Aspect, Attachment, EditProject, Episode, Item, Ref, Series, Task,
 import { isAudio, isVideo } from './Create'
 import { api, errMsg, mediaUrl, toAttachments } from './lib'
 import { Player } from './Player'
-import { fileOf, loadAll, type Tasks, updateSeries } from './seriesStore'
+import { clipOf, fileOf, loadAll, synced, type Tasks, updateSeries } from './seriesStore'
 import { pngBytes, textImage } from './textImage'
 import { TimelineView } from './TimelineView'
 import { Header, IconButton, SelectChip } from './ui'
@@ -41,14 +41,14 @@ export async function episodeProject(s: Series, ep: Episode, t: Tasks): Promise<
   p.episode = { series: s.id, episode: ep.id }
   let at = 0
   for (const [i, sc] of ep.scenes.entries()) {
-    const file = fileOf(t, sc.videoTask)
+    const file = clipOf(t, sc)
     const tm = timing(sc)
     if (!file) continue // a scene without video yet is left out, with its lines
     {
       const src = await api.mediaSeconds(file)
       const out = Math.min(src || tm.seconds, tm.seconds)
       p.items.push({ id: crypto.randomUUID(), track: MAIN, start: at, label: `Scene ${i + 1}`, ref: { kind: 'media', file }, media: 'video', source: src, in: 0, out: +out.toFixed(3),
-        hold: +Math.max(0, tm.seconds - out).toFixed(3), speed: 1, pan: 0, zoom: 1, sound: !!s.videoSound, volume: 1 })
+        hold: +Math.max(0, tm.seconds - out).toFixed(3), speed: 1, pan: 0, zoom: 1, sound: !!s.videoSound && !synced(t, sc), volume: 1 })
     }
     // The director's on-screen text (usually the hook) goes on the text track at the start of its shot.
     if (sc.plan?.text?.trim())

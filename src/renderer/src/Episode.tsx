@@ -1,16 +1,17 @@
-import { ArrowRight, Check, Mic, ChevronLeft, ChevronRight, Clapperboard, Download, FileText, Film, ImagePlus, LoaderCircle, Plus, RotateCcw, Square, TriangleAlert, Wand2, X } from 'lucide-react'
+import { ArrowRight, Check, Mic, Coins, Smile, ChevronLeft, ChevronRight, Clapperboard, Download, FileText, Film, ImagePlus, LoaderCircle, Plus, RotateCcw, Square, TriangleAlert, Wand2, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { buildInput } from '../../shared/inputs'
 import { chatModel, ELEVEN_VOICES, withBest } from '../../shared/models'
-import { estimate, priceLabel } from '../../shared/prices'
+import { estimate, priceLabel, USD_PER_CREDIT } from '../../shared/prices'
+import { sceneTarget } from '../../shared/timing'
 import type { Character, Episode, Scene, Series, ShotPlan, Step } from '../../shared/types'
 import { Avatar } from './Characters'
 import { Media } from './Create'
 import { episodeProject } from './Studio'
 import { api, errMsg, mediaUrl } from './lib'
 import {
-  castOf, clipFor, defaultEdit, editPrompt, elementsOf, fileOf, getSeries, img, IMAGE_MODELS, makeAll, makeOne, model, motionPrompt, needs, ready, refsOf, type Run, scenePrompt,
-  sceneRefs, setRun, stateOf, step, type Tasks, timing, toRender, updateSeries, VIDEO_MODELS, videoValues, voiceFor, voiceName,
+  castOf, clipFor, clipOf, defaultEdit, editPrompt, elementsOf, fileOf, getSeries, img, IMAGE_MODELS, makeAll, makeOne, model, motionPrompt, needs, ready, refsOf, type Run, scenePrompt,
+  sceneRefs, setRun, speaking, stateOf, step, syncKeyOf, syncState, type Tasks, timing, toRender, updateSeries, VIDEO_MODELS, videoValues, voiceFor, voiceName,
 } from './seriesStore'
 import { IconButton, SelectChip } from './ui'
 
@@ -45,6 +46,7 @@ export function EpisodeView(props: Props) {
         <div className="flex items-baseline gap-3">
           <span className="text-faint tabular-nums">Episode {index + 1}</span>
           <input aria-label="Episode title" value={ep.title} onChange={(e) => setEp((x) => void (x.title = e.target.value))} className="min-w-0 flex-1 bg-transparent text-lg font-semibold" />
+          <EpisodeCost s={s} ep={ep} t={props.tasks} />
         </div>
         <Summary s={s} ep={ep} index={index} setEp={setEp} />
         <div className="flex flex-wrap items-center gap-1">
@@ -421,6 +423,13 @@ function VoicesStep({ s, ep, tasks, cast, run, rk: k, setEp, go }: StepProps) {
     const measured = await Promise.all(latest.scenes.flatMap((sc) => sc.lines.map(async (l, li) => ({ sc: sc.id, li, s: l.seconds == null && fileOf(all, l.voiceTask) ? await api.mediaSeconds(fileOf(all, l.voiceTask)!) : undefined }))))
     await setEp((e) => measured.forEach((m) => m.s && (e.scenes.find((x) => x.id === m.sc)!.lines[m.li].seconds = m.s)))
   })
+  // A line that finished without being measured (recorded while locco was closed, say) is measured as soon as it's seen.
+  const unmeasured = lines.filter((x) => x.l.seconds == null && fileOf(tasks, x.l.voiceTask))
+  useEffect(() => {
+    if (!unmeasured.length || busy(run)) return
+    void Promise.all(unmeasured.map(async (x) => ({ x, sec: await api.mediaSeconds(fileOf(tasks, x.l.voiceTask)!) }))).then((all) =>
+      setEp((e) => all.forEach(({ x, sec }) => { const l = e.scenes.find((sc) => sc.id === x.sc.id)?.lines[x.li]; if (l && l.voiceTask === x.l.voiceTask && sec) l.seconds = sec })))
+  }, [unmeasured.map((x) => x.l.voiceTask).join(), busy(run)])
   const total = sum(ep.scenes.map((sc) => timing(sc).seconds))
   const done = lines.every((x) => !x.l.text.trim() || (fileOf(tasks, x.l.voiceTask) && x.l.seconds != null))
 
@@ -478,6 +487,61 @@ function VoicesStep({ s, ep, tasks, cast, run, rk: k, setEp, go }: StepProps) {
   )
 }
 
+// --- What the episode costs: spent so far, and what's left to finish it ---
+
+// Credits. Script writing is a rough average of what GPT 6 Sol has charged; voices use your ElevenLabs plan; the cut is
+// free (ffmpeg on this Mac). Before the script exists the shot count is the writers' target and every shot counts as talking.
+function costOf(s: Series, ep: Episode, t: Tasks) {
+  const im = model(s.imageModel)
+  const vm = model(s.videoModel)
+  const n = ep.scenes.length || sceneTarget(s.seconds)
+  const shots = ep.scenes.length ? ep.scenes.map((sc) => ({ sc, seconds: timing(sc).seconds })) : Array.from({ length: n }, () => ({ sc: undefined, seconds: s.seconds / n }))
+  const image = estimate(im.id, buildInput(im, SCENE_IMAGE, {}).input)?.hi ?? 0
+  const video = (sec: number) => estimate(vm.id, buildInput(vm, videoValues(vm, sec, !!s.videoSound), {}).input)?.hi ?? 0
+  const lips = (sec: number) => estimate('lip-sync', { duration: clipFor(vm, sec) })?.hi ?? 0
+  const talks = (sc?: Scene) => !sc || (sc.lines.some((l) => sc.cast.some((n) => n.trim().toLowerCase() === l.speaker.trim().toLowerCase())) && ['none', 'fail'].includes(syncState(t, sc)))
+  const left: [string, number][] = [
+    ['Script', ep.scenes.length ? 0 : 4 + 0.4 * n], // ponytail: measured averages (writers' room ~4, director ~0.4 a shot); Claude may differ
+    ['Scene images', sum(shots.filter((x) => !x.sc || needs(t, x.sc.frameTask)).map(() => image))],
+    ['Videos', sum(shots.filter((x) => !x.sc || needs(t, x.sc.videoTask)).map((x) => video(x.seconds)))],
+    ['Music', ep.music !== false && needs(t, ep.musicTask) ? (estimate('suno', {})?.hi ?? 0) : 0],
+  ]
+  const lipSync = sum(shots.filter((x) => talks(x.sc)).map((x) => lips(x.seconds)))
+  const ids = [...ep.scenes.flatMap((sc) => [sc.frameTask, ...(sc.versions ?? []), sc.videoTask, sc.syncTask]), ep.musicTask]
+  const spent = sum([...new Set(ids)].map((id) => (id && t[id]?.credits) || 0))
+  const chars = sum(ep.scenes.flatMap((sc) => sc.lines.filter((l) => l.text.trim() && needs(t, l.voiceTask)).map((l) => l.text.length)))
+  return { left, lipSync, spent, chars, guess: !ep.scenes.length }
+}
+
+const usd = (credits: number) => `$${(credits * USD_PER_CREDIT).toFixed(2)}`
+
+function EpisodeCost({ s, ep, t }: { s: Series; ep: Episode; t: Tasks }) {
+  const [open, setOpen] = useState(false)
+  const c = costOf(s, ep, t)
+  const toGo = sum(c.left.map(([, n]) => n))
+  return (
+    <div className="relative shrink-0">
+      <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} title="What this episode costs"
+        className="inline-flex h-7 items-center gap-1.5 rounded-full border border-line px-2.5 text-[12px] text-muted tabular-nums hover:bg-raised hover:text-fg">
+        <Coins size={12} /> {toGo ? `≈ ${usd(toGo)} to finish` : 'Paid for'}{c.spent > 0 && ` · ${usd(c.spent)} spent`}
+      </button>
+      {open && (
+        <div className="absolute top-9 right-0 z-30 w-72 rounded-xl border border-line bg-surface p-3 text-[12px] shadow-lg">
+          <p className="mb-2 font-medium text-fg">To finish this episode{c.guess && ' (estimated from the series length)'}</p>
+          {c.left.map(([label, n]) => (
+            <div key={label} className="flex justify-between py-0.5"><span className="text-muted">{label}</span><span className="tabular-nums">{n ? `${usd(n)} · ${Math.round(n)} cr` : 'done'}</span></div>
+          ))}
+          <div className="flex justify-between py-0.5"><span className="text-muted">Voices</span><span>{c.guess ? 'your ElevenLabs plan' : c.chars ? `${c.chars} characters, ElevenLabs plan` : 'done'}</span></div>
+          <div className="flex justify-between py-0.5"><span className="text-muted">Cut</span><span>free</span></div>
+          <div className="mt-1.5 flex justify-between border-t border-line pt-1.5 font-medium"><span>Total</span><span className="tabular-nums">≈ {usd(toGo)} · {Math.round(toGo)} cr</span></div>
+          {c.lipSync > 0 && <p className="mt-2 text-muted">Lip sync, if you use it: {c.guess ? 'up to ' : ''}{usd(c.lipSync)} more.</p>}
+          {c.spent > 0 && <p className="mt-1 text-muted">Spent on its pictures, videos and music so far: {usd(c.spent)}.</p>}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // --- 4. Video: each approved image animated, silent by default, just long enough for its dialogue ---
 
 function VideoStep({ s, ep, tasks, run, rk: k, setEp, go }: StepProps) {
@@ -489,6 +553,18 @@ function VideoStep({ s, ep, tasks, run, rk: k, setEp, go }: StepProps) {
   const animateAll = () => step(k, 'Animating scenes…', () => makeAll(k, `Animating ${missing.length} scenes…`, 'videos', missing, animate,
     (pairs) => setEp((e) => pairs.forEach(([sc, id]) => (e.scenes.find((x) => x.id === sc.id)!.videoTask = id)))))
   const done = ep.scenes.every((sc) => fileOf(tasks, sc.videoTask))
+  // Lip sync: shots where someone on screen speaks get their mouths moved to the recorded lines (narration is left alone).
+  const toSync = ep.scenes.filter((sc) => fileOf(tasks, sc.videoTask) && speaking(sc).length && ['none', 'fail'].includes(syncState(tasks, sc)))
+  const syncCost = (sc: Scene) => estimate('lip-sync', { duration: clipFor(vm, timing(sc).seconds) })?.hi ?? 0
+  const lipSync = async (sc: Scene) => {
+    const tm = timing(sc)
+    const talk = speaking(sc)
+    const audio = await api.voiceTrack(fileOf(tasks, sc.videoTask)!, talk.map(({ l, li }) => ({ file: fileOf(tasks, l.voiceTask)!, at: tm.voices[li] })))
+    const input = { mode: 'basic', open_scenedet: new Set(talk.map(({ l }) => l.speaker.toLowerCase())).size > 1, video_url: { kind: 'media', file: fileOf(tasks, sc.videoTask)! }, audio_url: { kind: 'media', file: audio } }
+    return (await api.generate({ modelId: 'lip-sync', variant: 'tool', prompt: '', input, count: 1 }))[0]
+  }
+  const syncAll = () => step(k, 'Lip sync…', () => makeAll(k, `Lip-syncing ${toSync.length} shot${toSync.length > 1 ? 's' : ''}…`, 'lip syncs', toSync, lipSync,
+    (pairs) => setEp((e) => pairs.forEach(([sc, id]) => Object.assign(e.scenes.find((x) => x.id === sc.id)!, { syncTask: id, syncKey: syncKeyOf(sc) })))))
 
   return (
     <>
@@ -505,18 +581,31 @@ function VideoStep({ s, ep, tasks, run, rk: k, setEp, go }: StepProps) {
             <Clapperboard size={15} /> Animate {missing.length} scene{missing.length > 1 ? 's' : ''} <span className="font-normal opacity-70">{priceOf(sum(missing.map(cost)))}</span>
           </button>
         )}
+        {toSync.length > 0 && (
+          <button type="button" disabled={busy(run)} onClick={syncAll} className={missing.length ? secondary : primary}
+            title="Moves the mouths of whoever speaks on screen to their recorded lines. The camera, action and timing stay the same; narration is left alone.">
+            <Smile size={missing.length ? 13 : 15} /> Lip sync {toSync.length} talking shot{toSync.length > 1 ? 's' : ''} <span className="font-normal opacity-70">{priceOf(sum(toSync.map(syncCost)))}</span>
+          </button>
+        )}
       </div>
       <div className="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] gap-2">
         {ep.scenes.map((sc, i) => {
-          const v = fileOf(tasks, sc.videoTask)
+          const v = clipOf(tasks, sc)
           const f = fileOf(tasks, sc.frameTask)
           const st = stateOf(tasks, sc.videoTask)
+          const lips = speaking(sc).length ? syncState(tasks, sc) : undefined
           return (
             <div key={sc.id} className="flex flex-col gap-1">
               <div className="relative aspect-[9/16] overflow-hidden rounded-xl bg-raised">
                 {v ? <Media file={v} alt={`Scene ${i + 1}`} className="size-full object-cover" /> : f && <img src={mediaUrl({ kind: 'media', file: f })} alt="" className="size-full object-cover opacity-60" />}
-                {st === 'busy' && <span className="absolute inset-0 flex items-center justify-center text-white"><LoaderCircle size={18} className="animate-spin" /></span>}
+                {(st === 'busy' || lips === 'busy') && <span className="absolute inset-0 flex items-center justify-center text-white"><LoaderCircle size={18} className="animate-spin" /></span>}
                 <span className="absolute top-1 left-1 rounded bg-black/60 px-1.5 text-[11px] leading-5 text-white tabular-nums">{i + 1}</span>
+                {lips && lips !== 'none' && (
+                  <span title={lips === 'fail' ? `Lip sync failed: ${tasks[sc.syncTask!]?.error ?? ''}` : lips === 'busy' ? 'Lip-syncing…' : 'Lip-synced to the voices'}
+                    className={`absolute top-1 right-1 rounded bg-black/60 px-1.5 text-[11px] leading-5 ${lips === 'fail' ? 'text-danger' : 'text-white'}`}>
+                    {lips === 'done' ? 'Lips ✓' : lips === 'busy' ? 'Lips…' : 'Lips ✕'}
+                  </span>
+                )}
               </div>
               <div className="flex items-center text-[11px] text-muted tabular-nums">
                 <span title="Scene length (from the voices) · clip the model makes">{fmt(timing(sc).seconds)} · {clipFor(vm, timing(sc).seconds)} s clip</span>

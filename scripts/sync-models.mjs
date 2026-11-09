@@ -94,6 +94,8 @@ const MODELS = [
   { id: 'vidu-q4-reference', kind: 'video', label: 'Vidu Q4 Reference', image: 'vidu-q4/reference-to-video', price: '^vidu q4, reference' },
   { id: 'grok-imagine-1-5', kind: 'video', label: 'Grok Imagine 1.5 Preview', image: 'grok-imagine/1-5-preview', price: '^grok-imagine-video-1-5-preview' },
   { id: 'video-upscale', kind: 'video', label: 'Topaz Video Upscale', tool: 'topaz/video-upscale' },
+  // Moves the mouths in a finished clip to a voice track (the series' Lip sync step). Used by the app, not in the gallery.
+  { id: 'lip-sync', kind: 'video', label: 'Lip Sync', tool: 'volcengine/video-to-video-lip-sync', hidden: true, price: '^volcengine, lip sync' },
 
   { id: 'suno', kind: 'audio', label: 'Suno V6', text: 'https://docs.kie.ai/suno-api/generate-music.md', slug: 'ai-music-api/generate',
     hide: ['persona_id', 'persona_model', 'style_weight', 'weirdness_constraint', 'audio_weight', 'variety', 'lyrics', 'image_urls',

@@ -145,6 +145,9 @@ export type Scene = {
   versions?: string[]
   approved?: boolean
   videoTask?: string
+  // The clip with its mouths moved to the voices; syncKey says which video and voices it was made from.
+  syncTask?: string
+  syncKey?: string
 }
 // Episodes move through the steps in order; script and scenes wait for your approval.
 export type Step = 'script' | 'scenes' | 'voices' | 'video' | 'cut'

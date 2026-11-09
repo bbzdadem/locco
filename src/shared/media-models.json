@@ -1800,7 +1800,7 @@
             "auto"
           ],
           "default": "auto",
-          "description": "Background. Optional, default `auto`. Transparent background is only supported with `png` / `webp`."
+          "description": "Background. Optional, default `auto`. Transparent background is only supported with `png` / `webp` / `gif`."
         },
         {
           "name": "output_format",
@@ -2006,7 +2006,7 @@
             "auto"
           ],
           "default": "auto",
-          "description": "Background. Optional, default `auto`. Transparent background is only supported with `png` / `webp` ."
+          "description": "Background. Optional, default `auto`. Transparent background is only supported with `png` / `webp` / `gif`."
         },
         {
           "name": "output_format",
@@ -7121,6 +7121,82 @@
         }
       ]
     }
+  },
+  {
+    "id": "lip-sync",
+    "kind": "video",
+    "label": "Lip Sync",
+    "hidden": true,
+    "tool": {
+      "path": "volcengine/video-to-video-lip-sync",
+      "slug": "volcengine/video-to-video-lip-sync",
+      "deprecated": false,
+      "fields": [
+        {
+          "name": "mode",
+          "type": "string",
+          "enum": [
+            "lite",
+            "basic"
+          ],
+          "required": true,
+          "description": "Service mode for lip-sync generation."
+        },
+        {
+          "name": "video_url",
+          "type": "string",
+          "media": true,
+          "accept": "video",
+          "required": true,
+          "description": "Video URL. Supported resolution: 360p–1080p. Videos above 1080p will be compressed to 1080p, while videos below 360p are not supported. Supported formats: MOV, "
+        },
+        {
+          "name": "audio_url",
+          "type": "string",
+          "media": true,
+          "accept": "audio",
+          "required": true,
+          "description": "Target pure vocal audio URL; used to drive video lip movements. Audio duration: over 1 s and up to 240 s in lite mode; over 1 s and up to 210 s in basic mode. A"
+        },
+        {
+          "name": "separate_vocal",
+          "type": "boolean",
+          "default": false,
+          "description": "Enable vocal separation to suppress background noise. Default value: `false`."
+        },
+        {
+          "name": "open_scenedet",
+          "type": "boolean",
+          "default": false,
+          "description": "Whether to enable scene segmentation and speaker identification. Supported only in Basic mode. Default value: `false`."
+        },
+        {
+          "name": "align_audio",
+          "type": "boolean",
+          "default": true,
+          "description": "Supported in Lite mode. Whether to loop the video when the audio is longer than the video. Default value: `true`."
+        },
+        {
+          "name": "align_audio_reverse",
+          "type": "boolean",
+          "default": false,
+          "description": "Supported in Lite mode. Whether to loop the video in reverse (backward). Requires `align_audio` to be set to `true`. Default value: `false`."
+        },
+        {
+          "name": "templ_start_seconds",
+          "type": "number",
+          "default": 0,
+          "description": "Supported in Lite mode. Start time of the template video, in seconds. Default value: `0`."
+        }
+      ]
+    },
+    "prices": [
+      {
+        "d": "volcengine, lip sync",
+        "c": 8,
+        "u": "second"
+      }
+    ]
   },
   {
     "id": "suno",

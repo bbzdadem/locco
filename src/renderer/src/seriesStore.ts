@@ -82,6 +82,13 @@ export const stateOf = (t: Tasks, id?: string) =>
   !id ? 'none' : !t[id] ? 'busy' : t[id].state === 'success' ? 'done' : t[id].state === 'fail' ? 'fail' : 'busy'
 export const fileOf = (t: Tasks, id?: string) => (id && t[id]?.state === 'success' ? t[id].files[0] : undefined)
 export const needs = (t: Tasks, id?: string) => ['none', 'fail'].includes(stateOf(t, id))
+// Lip sync: the shot's lines spoken by someone on screen (not the narrator), and the synced clip while it still matches
+// the shot's video and voices (animating again or re-recording a line falls back to the plain clip).
+export const speaking = (sc: Scene) => sc.lines.map((l, li) => ({ l, li })).filter(({ l }) => l.voiceTask && sc.cast.some((n) => n.trim().toLowerCase() === l.speaker.trim().toLowerCase()))
+export const syncKeyOf = (sc: Scene) => [sc.videoTask, ...sc.lines.map((l) => l.voiceTask ?? '')].join('|')
+export const syncState = (t: Tasks, sc: Scene) => (sc.syncTask && sc.syncKey === syncKeyOf(sc) ? stateOf(t, sc.syncTask) : 'none')
+export const synced = (t: Tasks, sc: Scene) => (syncState(t, sc) === 'done' ? fileOf(t, sc.syncTask) : undefined)
+export const clipOf = (t: Tasks, sc: Scene) => synced(t, sc) ?? fileOf(t, sc.videoTask)
 export const allTasks = async () => Object.fromEntries((await api.tasks()).map((t) => [t.id, t])) as Tasks
 
 export async function makeOne(modelId: string, values: Record<string, unknown>, files: Attachment[], prompt: string, count = 1) {
@@ -92,7 +99,7 @@ export async function makeOne(modelId: string, values: Record<string, unknown>, 
 }
 
 // Starts one job per item, saves the ids and waits for all of them, showing how long kie is taking.
-// A job kie times out on is started once more; any other failure stops the run with kie's reason.
+// A job kie times out on, or turns away as busy (unbilled), is started once more; any other failure stops the run with kie's reason.
 export async function makeAll<T>(key: string, label: string, what: string, items: T[], make: (it: T) => Promise<string>, save: (pairs: [T, string][]) => Promise<void>) {
   if (!items.length) return
   const ids = await Promise.all(items.map(make))
@@ -103,7 +110,7 @@ export async function makeAll<T>(key: string, label: string, what: string, items
     if (runs[key]?.stop) throw new Error('Stopped. Press the button again to carry on where it left off.')
     const all = await api.tasks()
     const mine = ids.map((id) => all.find((t) => t.id === id))
-    const again = mine.flatMap((t, i) => (t?.state === 'fail' && /time ?out|timed out/i.test(t.error ?? '') && !retried.has(i) ? [i] : []))
+    const again = mine.flatMap((t, i) => (t?.state === 'fail' && /time ?out|timed out|busy|try again/i.test(t.error ?? '') && !retried.has(i) ? [i] : []))
     if (again.length) {
       for (const i of again) (retried.add(i), (ids[i] = await make(items[i])))
       await save(again.map((i) => [items[i], ids[i]]))
@@ -226,12 +233,12 @@ export { timing } from '../../shared/timing'
 // holding the last frame when the clip is shorter than that.
 export async function defaultEdit(s: Series, ep: Episode, t: Tasks): Promise<Edit> {
   const clips = await Promise.all(ep.scenes.map(async (sc) => {
-    const file = fileOf(t, sc.videoTask)
+    const file = clipOf(t, sc)
     const tm = sceneTiming(sc)
     const out = Math.min((file && (await api.mediaSeconds(file))) || tm.seconds, tm.seconds)
     return {
       id: crypto.randomUUID(), sceneId: sc.id, in: 0, out: +out.toFixed(2), speed: 1, pan: 0, zoom: 1,
-      hold: +Math.max(0, tm.seconds - out).toFixed(2), sound: !!s.videoSound,
+      hold: +Math.max(0, tm.seconds - out).toFixed(2), sound: !!s.videoSound && !synced(t, sc), // a synced clip's own sound is the voices again
       voices: sc.lines.flatMap((l, i) => (fileOf(t, l.voiceTask) ? [{ line: i, at: +tm.voices[i].toFixed(2) }] : [])), // only lines that have audio
     }
   }))
@@ -242,7 +249,7 @@ export async function defaultEdit(s: Series, ep: Episode, t: Tasks): Promise<Edi
 export function toRender(ep: Episode, edit: Edit, t: Tasks, name: string, preview = false): RenderRequest {
   const clips = edit.clips.flatMap((c) => {
     const sc = ep.scenes.find((x) => x.id === c.sceneId)
-    const video = fileOf(t, sc?.videoTask)
+    const video = sc && clipOf(t, sc)
     if (!sc || !video) return []
     const { id: _id, sceneId: _scene, voices, ...rest } = c
     return [{ ...rest, video, voices: voices.flatMap((v) => (fileOf(t, sc.lines[v.line]?.voiceTask) ? [{ file: fileOf(t, sc.lines[v.line].voiceTask)!, at: v.at }] : [])) }]

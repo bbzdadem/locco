@@ -62,20 +62,33 @@ export async function generate(req: GenerateRequest): Promise<string[]> {
 }
 
 // ElevenLabs answers with the audio directly: the job is saved as waiting (in locco's queue), marked generating when it's
-// sent, then finished when the reply arrives.
-function startEleven(model: MediaModel, spec: ModelSpec, req: GenerateRequest) {
-  const main = spec.fields.find(isMain)
-  if (main?.required && !req.prompt.trim()) throw new Error(main.name === 'text' ? 'Type what the voice should say.' : 'Write a prompt first.')
+// sent, then finished when the reply arrives. Jobs still unfinished when locco quits are sent again at the next launch.
+function elevenInput(model: MediaModel, spec: ModelSpec, raw: Record<string, unknown>) {
   const input: Record<string, unknown> = {}
   for (const f of spec.fields) {
     if (isMain(f)) continue
-    const v = req.input[f.name] ?? (f.media ? undefined : current(f, undefined))
+    const v = raw[f.name] ?? (f.media ? undefined : current(f, undefined))
     if (v === undefined || v === '') {
       if (f.required) throw new Error(f.name === 'voice' ? 'Pick a voice. Add your ElevenLabs key in Settings to load your voices.' : `${model.label} needs ${f.name}.`)
       continue
     }
     input[f.name] = v
   }
+  return input
+}
+function runElevenTask(id: string, modelId: string, prompt: string, input: Record<string, unknown>) {
+  void runEleven(modelId, prompt, input, () => (db.prepare("UPDATE tasks SET state = 'generating' WHERE id = ?").run(id), notify()))
+    .then(async ({ bytes, ext }) => {
+      await writeFile(join(dirs.media, id + ext), bytes)
+      db.prepare("UPDATE tasks SET state = 'success', files = ?, completed_at = ? WHERE id = ?").run(JSON.stringify([id + ext]), Date.now(), id)
+    })
+    .catch((e) => db.prepare("UPDATE tasks SET state = 'fail', error = ?, completed_at = ? WHERE id = ?").run((e as Error).message, Date.now(), id))
+    .finally(() => notify())
+}
+function startEleven(model: MediaModel, spec: ModelSpec, req: GenerateRequest) {
+  const main = spec.fields.find(isMain)
+  if (main?.required && !req.prompt.trim()) throw new Error(main.name === 'text' ? 'Type what the voice should say.' : 'Write a prompt first.')
+  const input = elevenInput(model, spec, req.input)
   const ids: string[] = []
   for (let i = 0; i < Math.min(Math.max(Math.round(req.count) || 1, 1), 4); i++) {
     const id = `el-${randomUUID()}`
@@ -83,13 +96,7 @@ function startEleven(model: MediaModel, spec: ModelSpec, req: GenerateRequest) {
     db.prepare(
       "INSERT INTO tasks (id, model_id, variant, label, prompt, input, state, files, project_id, created_at) VALUES (?, ?, ?, ?, ?, ?, 'waiting', '[]', ?, ?)",
     ).run(id, model.id, req.variant, model.label, req.prompt, JSON.stringify(req.input), req.projectId ?? null, Date.now())
-    void runEleven(model.id, req.prompt.trim(), input, () => (db.prepare("UPDATE tasks SET state = 'generating' WHERE id = ?").run(id), notify()))
-      .then(async ({ bytes, ext }) => {
-        await writeFile(join(dirs.media, id + ext), bytes)
-        db.prepare("UPDATE tasks SET state = 'success', files = ?, completed_at = ? WHERE id = ?").run(JSON.stringify([id + ext]), Date.now(), id)
-      })
-      .catch((e) => db.prepare("UPDATE tasks SET state = 'fail', error = ?, completed_at = ? WHERE id = ?").run((e as Error).message, Date.now(), id))
-      .finally(() => notify())
+    runElevenTask(id, model.id, req.prompt.trim(), input)
   }
   notify()
   return ids
@@ -172,8 +179,18 @@ export async function transcribe(recording: Ref): Promise<string> {
 
 export function startPoller(onChange: () => void) {
   notify = onChange
-  // An ElevenLabs reply that was still on its way when locco quit can't arrive any more.
-  db.prepare("UPDATE tasks SET state = 'fail', error = 'Stopped when locco quit. Try again.' WHERE id LIKE 'el-%' AND state NOT IN ('success', 'fail')").run()
+  // ElevenLabs jobs that were queued or on their way when locco quit: send them again (a reply in flight was lost).
+  const unfinished = db.prepare("SELECT id, model_id, variant, prompt, input FROM tasks WHERE id LIKE 'el-%' AND state NOT IN ('success', 'fail') ORDER BY created_at").all() as any[]
+  for (const r of unfinished) {
+    try {
+      const model = MEDIA_MODELS.find((m) => m.id === r.model_id)!
+      const input = elevenInput(model, model[r.variant as 'text']!, JSON.parse(r.input || '{}'))
+      db.prepare("UPDATE tasks SET state = 'waiting' WHERE id = ?").run(r.id)
+      runElevenTask(r.id, model.id, String(r.prompt ?? '').trim(), input)
+    } catch (e) {
+      db.prepare("UPDATE tasks SET state = 'fail', error = ? WHERE id = ?").run(`Stopped when locco quit: ${(e as Error).message}`, r.id)
+    }
+  }
   setInterval(sweep, 4000)
   void sweep()
 }
