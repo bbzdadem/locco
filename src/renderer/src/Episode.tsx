@@ -1,6 +1,6 @@
 import { ArrowRight, Check, Mic, Coins, Smile, ChevronLeft, ChevronRight, Clapperboard, Download, FileText, Film, ImagePlus, LoaderCircle, Plus, RotateCcw, Square, TriangleAlert, Wand2, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { AD_FORMATS, adShots, adVersions } from '../../shared/ads'
+import { AD_FORMATS, adShots, adVersions, playing } from '../../shared/ads'
 import { buildInput } from '../../shared/inputs'
 import { chatModel, ELEVEN_VOICES, withBest } from '../../shared/models'
 import { estimate, priceLabel, USD_PER_CREDIT } from '../../shared/prices'
@@ -81,7 +81,7 @@ export function EpisodeView(props: Props) {
           {shown === 'cut' && (s.kind === 'ad' ? <AdCutStep {...p} /> : <CutStep {...p} />)}
         </div>
       </div>
-      {ep.scenes.length > 0 && <Timeline scenes={ep.scenes} selected={shown === 'scenes' ? selected : undefined} onPick={(id) => (setSelected(id), shown !== 'scenes' && reached >= 1 && setView('scenes'))} />}
+      {ep.scenes.length > 0 && <Timeline scenes={shown === 'script' || shown === 'scenes' ? ep.scenes : playing(ep)} selected={shown === 'scenes' ? selected : undefined} onPick={(id) => (setSelected(id), shown !== 'scenes' && reached >= 1 && setView('scenes'))} />}
     </div>
   )
 }
@@ -307,8 +307,13 @@ function ScenesStep({ s, ep, tasks, cast, things, run, rk: k, setEp, go, selecte
   const drawAll = () => step(k, 'Drawing scenes…', () => makeAll(k, `Drawing ${missing.length} scenes…`, 'scene images', missing, draw,
     (pairs) => setEp((e) => pairs.forEach(([sc, id]) => Object.assign(e.scenes.find((x) => x.id === sc.id)!, { frameTask: id, approved: false })))))
   const sc = ep.scenes.find((x) => x.id === selected) ?? ep.scenes[0]
-  const approved = ep.scenes.filter((x) => x.approved && fileOf(tasks, x.frameTask)).length
+  const ok = (x: Scene) => !!x.approved && !!fileOf(tasks, x.frameTask)
+  const approved = ep.scenes.filter(ok).length
   const allDone = approved === ep.scenes.length
+  // An ad goes on with every shot approved and at least one hook; the hooks left unapproved are dropped.
+  const hooks = ep.scenes.filter((x) => x.hook)
+  const canGo = ep.scenes.filter((x) => !x.hook).every(ok) && (!hooks.length || hooks.some(ok))
+  const dropped = hooks.some(ok) ? hooks.filter((x) => !ok(x)) : []
 
   return (
     <>
@@ -353,8 +358,13 @@ function ScenesStep({ s, ep, tasks, cast, things, run, rk: k, setEp, go, selecte
         {!allDone && ep.scenes.every((x) => fileOf(tasks, x.frameTask)) && (
           <button type="button" className={secondary} onClick={() => setEp((e) => e.scenes.forEach((x) => (x.approved = true)))}><Check size={13} /> Approve all</button>
         )}
-        <button type="button" disabled={!allDone || busy(run)} onClick={() => go('voices')} className={primary}
-          title={allDone ? undefined : 'Approve every scene first'}>
+        {canGo && dropped.length > 0 && (
+          <span className="mr-auto text-[13px] text-muted">
+            Hook{dropped.length > 1 ? 's' : ''} {dropped.map((x) => x.hook).join(' and ')} {dropped.length > 1 ? 'aren\'t' : 'isn\'t'} approved, so {dropped.length > 1 ? 'they\'re' : 'it\'s'} left out: no voice, video or version for {dropped.length > 1 ? 'them' : 'it'}.
+          </span>
+        )}
+        <button type="button" disabled={!canGo || busy(run)} onClick={() => go('voices')} className={primary}
+          title={canGo ? undefined : hooks.length ? 'Approve every shot and at least one hook first' : 'Approve every scene first'}>
           Continue to voices <ArrowRight size={15} />
         </button>
       </div>
@@ -434,7 +444,8 @@ function SceneDetail({ s, sc, name, tasks, run, refs, people, k, setScene, draw 
 // --- 3. Voices: every line in its character's ElevenLabs voice; their lengths set each scene's length ---
 
 function VoicesStep({ s, ep, tasks, cast, run, rk: k, setEp, go }: StepProps) {
-  const lines = ep.scenes.flatMap((sc) => sc.lines.map((l, li) => ({ sc, l, li })))
+  const used = playing(ep)
+  const lines = used.flatMap((sc) => sc.lines.map((l, li) => ({ sc, l, li })))
   const missing = lines.filter((x) => x.l.text.trim() && (needs(tasks, x.l.voiceTask) || x.l.seconds == null))
   type L = (typeof lines)[number]
   // Records the given lines (all missing ones, or a single line), then measures them: their length sets the scene's.
@@ -454,7 +465,7 @@ function VoicesStep({ s, ep, tasks, cast, run, rk: k, setEp, go }: StepProps) {
     void Promise.all(unmeasured.map(async (x) => ({ x, sec: await api.mediaSeconds(fileOf(tasks, x.l.voiceTask)!) }))).then((all) =>
       setEp((e) => all.forEach(({ x, sec }) => { const l = e.scenes.find((sc) => sc.id === x.sc.id)?.lines[x.li]; if (l && l.voiceTask === x.l.voiceTask && sec) l.seconds = sec })))
   }, [unmeasured.map((x) => x.l.voiceTask).join(), busy(run)])
-  const total = sum(ep.scenes.map((sc) => timing(sc).seconds))
+  const total = sum(adVersions(ep)[0].scenes.map((sc) => timing(sc).seconds)) // an ad: one version (a hook and the body)
   const done = lines.every((x) => !x.l.text.trim() || (fileOf(tasks, x.l.voiceTask) && x.l.seconds != null))
 
   return (
@@ -466,10 +477,10 @@ function VoicesStep({ s, ep, tasks, cast, run, rk: k, setEp, go }: StepProps) {
             <Clapperboard size={15} /> Record {missing.length} line{missing.length > 1 ? 's' : ''} <span className="font-normal opacity-70">ElevenLabs plan</span>
           </button>
         )}
-        <span className="ml-auto text-[13px] text-muted tabular-nums">Episode length ≈ {fmt(total)}</span>
+        <span className="ml-auto text-[13px] text-muted tabular-nums">{s.kind === 'ad' ? 'Ad' : 'Episode'} length ≈ {fmt(total)}</span>
       </div>
       <div className="flex flex-col gap-2">
-        {ep.scenes.map((sc, i) => (
+        {used.map((sc, i) => (
           <div key={sc.id} className="flex gap-3 rounded-2xl border border-line bg-surface p-3 text-[13px]">
             <div className="w-16 shrink-0">
               <div className="aspect-[9/16] overflow-hidden rounded-lg bg-raised">
@@ -502,8 +513,14 @@ function VoicesStep({ s, ep, tasks, cast, run, rk: k, setEp, go }: StepProps) {
           </div>
         ))}
       </div>
-      <div className="flex justify-end">
-        <button type="button" disabled={!done || busy(run)} onClick={() => go('video')} className={primary} title={done ? undefined : 'Record every line first'}>
+      <div className="flex justify-end gap-2">
+        {!done && (
+          <button type="button" disabled={busy(run)} onClick={() => go('video')} className={secondary}
+            title="Go on without recording: lines without a voice stay silent (no voice and no caption); you can come back and record them before the cut.">
+            Skip voices <ArrowRight size={13} />
+          </button>
+        )}
+        <button type="button" disabled={!done || busy(run)} onClick={() => go('video')} className={primary} title={done ? undefined : 'Record every line first, or skip voices'}>
           Continue to video <ArrowRight size={15} />
         </button>
       </div>
@@ -519,7 +536,7 @@ function costOf(s: Series, ep: Episode, t: Tasks) {
   const im = model(s.imageModel)
   const vm = model(s.videoModel)
   const n = ep.scenes.length || (s.kind === 'ad' ? adShots(s.seconds) + 3 : sceneTarget(s.seconds))
-  const shots = ep.scenes.length ? ep.scenes.map((sc) => ({ sc, seconds: timing(sc).seconds })) : Array.from({ length: n }, () => ({ sc: undefined, seconds: s.seconds / n }))
+  const shots = ep.scenes.length ? playing(ep).map((sc) => ({ sc, seconds: timing(sc).seconds })) : Array.from({ length: n }, () => ({ sc: undefined, seconds: s.seconds / n }))
   const image = estimate(im.id, buildInput(im, SCENE_IMAGE, {}).input)?.hi ?? 0
   const video = (sec: number) => estimate(vm.id, buildInput(vm, videoValues(vm, sec, !!s.videoSound), {}).input)?.hi ?? 0
   const lips = (sec: number) => estimate('lip-sync', { duration: clipFor(vm, sec) })?.hi ?? 0
@@ -533,7 +550,7 @@ function costOf(s: Series, ep: Episode, t: Tasks) {
   const lipSync = sum(shots.filter((x) => talks(x.sc)).map((x) => lips(x.seconds)))
   const ids = [...ep.scenes.flatMap((sc) => [sc.frameTask, ...(sc.versions ?? []), sc.videoTask, sc.syncTask]), ep.musicTask]
   const spent = sum([...new Set(ids)].map((id) => (id && t[id]?.credits) || 0))
-  const chars = sum(ep.scenes.flatMap((sc) => sc.lines.filter((l) => l.text.trim() && needs(t, l.voiceTask)).map((l) => l.text.length)))
+  const chars = sum(playing(ep).flatMap((sc) => sc.lines.filter((l) => l.text.trim() && needs(t, l.voiceTask)).map((l) => l.text.length)))
   return { left, lipSync, spent, chars, guess: !ep.scenes.length }
 }
 
@@ -571,14 +588,15 @@ function EpisodeCost({ s, ep, t }: { s: Series; ep: Episode; t: Tasks }) {
 function VideoStep({ s, ep, tasks, run, rk: k, setEp, go }: StepProps) {
   const vm = model(s.videoModel)
   const sound = !!s.videoSound
-  const missing = ep.scenes.filter((sc) => needs(tasks, sc.videoTask))
+  const used = playing(ep)
+  const missing = used.filter((sc) => needs(tasks, sc.videoTask))
   const cost = (sc: Scene) => estimate(vm.id, buildInput(vm, videoValues(vm, timing(sc).seconds, sound), {}).input)?.hi ?? 0
   const animate = (sc: Scene) => makeOne(vm.id, videoValues(vm, timing(sc).seconds, sound), [img(fileOf(tasks, sc.frameTask)!)], motionPrompt(s, sc)).then((ids) => ids[0])
   const animateAll = () => step(k, 'Animating scenes…', () => makeAll(k, `Animating ${missing.length} scenes…`, 'videos', missing, animate,
     (pairs) => setEp((e) => pairs.forEach(([sc, id]) => (e.scenes.find((x) => x.id === sc.id)!.videoTask = id)))))
-  const done = ep.scenes.every((sc) => fileOf(tasks, sc.videoTask))
+  const done = used.every((sc) => fileOf(tasks, sc.videoTask))
   // Lip sync: shots where someone on screen speaks get their mouths moved to the recorded lines (narration is left alone).
-  const toSync = ep.scenes.filter((sc) => fileOf(tasks, sc.videoTask) && speaking(sc).length && ['none', 'fail'].includes(syncState(tasks, sc)))
+  const toSync = used.filter((sc) => fileOf(tasks, sc.videoTask) && speaking(sc).length && ['none', 'fail'].includes(syncState(tasks, sc)))
   const syncCost = (sc: Scene) => estimate('lip-sync', { duration: clipFor(vm, timing(sc).seconds) })?.hi ?? 0
   const lipSync = async (sc: Scene) => {
     const tm = timing(sc)
@@ -613,7 +631,7 @@ function VideoStep({ s, ep, tasks, run, rk: k, setEp, go }: StepProps) {
         )}
       </div>
       <div className="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] gap-2">
-        {ep.scenes.map((sc, i) => {
+        {used.map((sc, i) => {
           const v = clipOf(tasks, sc)
           const f = fileOf(tasks, sc.frameTask)
           const st = stateOf(tasks, sc.videoTask)

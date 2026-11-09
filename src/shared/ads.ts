@@ -20,9 +20,15 @@ export const HOOKS = ['A', 'B', 'C']
 // Shots in an ad's body: one every 2.5 s or so (ads cut faster than stories).
 export const adShots = (seconds: number) => Math.max(4, Math.min(12, Math.round(seconds / 2.5)))
 
+// The shots that make it into the ad: once you approve a hook, the hooks you didn't approve are left out (no voices,
+// videos or versions for them). A series, or an ad with no hook approved yet, keeps every shot.
+export const playing = (ep: Pick<Episode, 'scenes'>) =>
+  ep.scenes.some((sc) => sc.hook && sc.approved) ? ep.scenes.filter((sc) => !sc.hook || sc.approved) : ep.scenes
+
 // The versions of an ad: each hook followed by the body. An ad without hooks has one version, all its shots.
 export function adVersions(ep: Pick<Episode, 'scenes'>): { hook?: string; scenes: Scene[] }[] {
-  const hooks = ep.scenes.filter((sc) => sc.hook)
-  const body = ep.scenes.filter((sc) => !sc.hook)
-  return hooks.length ? hooks.map((h) => ({ hook: h.hook, scenes: [h, ...body] })) : [{ scenes: ep.scenes }]
+  const scenes = playing(ep)
+  const hooks = scenes.filter((sc) => sc.hook)
+  const body = scenes.filter((sc) => !sc.hook)
+  return hooks.length ? hooks.map((h) => ({ hook: h.hook, scenes: [h, ...body] })) : [{ scenes }]
 }
