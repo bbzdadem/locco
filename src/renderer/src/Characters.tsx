@@ -4,6 +4,7 @@ import { buildInput } from '../../shared/inputs'
 import { ELEVEN_VOICES, withBest } from '../../shared/models'
 import { estimate, priceLabel } from '../../shared/prices'
 import type { Attachment, Character, Series } from '../../shared/types'
+import { Zoomable } from './Create'
 import { ACCEPT_IMAGES, api, errMsg, mediaUrl, toAttachments } from './lib'
 import { fileOf, getChar, IMAGE_MODELS, img, makeOne, model, photosOf, portraitPrompt, removeChar, saveChar, sheetPrompt, stateOf, type Tasks, updateChar, voiceName } from './seriesStore'
 import { IconButton, SelectChip } from './ui'
@@ -201,7 +202,9 @@ export function CharacterBuilder({ id, tasks, usedIn, onClose }: { id: string; t
 
         <Section n={2} title={el ? 'Pick an image' : 'Pick a portrait'} done={!!c.portraitTask} locked={!canPortraits} hint="Write a name and a look first.">
           {!options.length && portrait && (
-            <img src={mediaUrl({ kind: 'media', file: portrait })} alt={`${c.name}'s portrait`} style={{ aspectRatio: shape.replace(':', ' / ') }} className="w-40 rounded-xl object-cover ring-2 ring-fg" />
+            <Zoomable file={portrait} alt={`${c.name}'s ${el ? 'image' : 'portrait'}`} className="w-40">
+              <img src={mediaUrl({ kind: 'media', file: portrait })} alt={`${c.name}'s portrait`} style={{ aspectRatio: shape.replace(':', ' / ') }} className="w-40 rounded-xl object-cover ring-2 ring-fg" />
+            </Zoomable>
           )}
           {options.length ? (
             <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2">
@@ -239,7 +242,7 @@ export function CharacterBuilder({ id, tasks, usedIn, onClose }: { id: string; t
         <Section n={3} title={el ? 'More angles (optional)' : 'Reference sheet (optional)'} done={!!sheet} locked={!c.portraitTask} hint={`Pick ${el ? 'an image' : 'a portrait'} first; ${el ? 'the angles are' : 'the sheet is'} made from it.`}>
           {c.sheetTask && (
             <div className="relative aspect-video overflow-hidden rounded-xl bg-raised">
-              {sheet ? <img src={mediaUrl({ kind: 'media', file: sheet })} alt="Reference sheet" className="size-full object-contain" />
+              {sheet ? <Zoomable file={sheet} alt={el ? 'More angles' : 'Reference sheet'} className="size-full"><img src={mediaUrl({ kind: 'media', file: sheet })} alt="Reference sheet" className="size-full object-contain" /></Zoomable>
                 : <span className="flex size-full items-center justify-center gap-2 text-[13px] text-muted">
                     {stateOf(tasks, c.sheetTask) === 'fail' ? tasks[c.sheetTask]?.error : <><LoaderCircle size={16} className="animate-spin" /> Drawing front, side and full-body views…</>}
                   </span>}

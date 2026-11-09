@@ -1,5 +1,6 @@
 import { AudioLines, AudioWaveform, Clapperboard, Download, Image, ImagePlus, LoaderCircle, Maximize2, MessageSquare, Music, Play, Plus, RotateCcw, Scissors, SlidersHorizontal, Sparkles, Star, Trash2, TriangleAlert, WandSparkles, X } from 'lucide-react'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { createPortal } from 'react-dom'
 import { generators, isEleven, kindOf, MEDIA_MODELS, withBest } from '../../shared/models'
 import { buildInput, capOf, fill, isMain, refList, resolveMentions, slotLabel, slotsOf, valid, current, type Refs } from '../../shared/inputs'
 import { estimate, priceLabel } from '../../shared/prices'
@@ -619,6 +620,38 @@ export function Media({ file, alt, className, controls }: { file: string; alt: s
       onMouseEnter={(e) => void e.currentTarget.play().catch(() => {})}
       onMouseLeave={(e) => e.currentTarget.pause()}
     />
+  )
+}
+
+// A picture or clip you can click to see full size; a click outside it or Esc closes it (and only it, not a dialog
+// it sits in).
+export function Zoomable({ file, alt, className = '', children }: { file?: string; alt: string; className?: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    if (!open) return
+    const h = (e: KeyboardEvent) => e.key === 'Escape' && (e.stopImmediatePropagation(), setOpen(false))
+    addEventListener('keydown', h, true)
+    return () => removeEventListener('keydown', h, true)
+  }, [open])
+  if (!file) return <>{children}</>
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)} title="View full size" aria-label={`View ${alt} full size`} className={`block cursor-zoom-in ${className}`}>
+        {children}
+      </button>
+      {open && createPortal(
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/85 p-8 pt-12" onMouseDown={(e) => e.stopPropagation()} onClick={() => setOpen(false)}>
+          <div onClick={(e) => e.stopPropagation()} className="flex max-h-full max-w-full">
+            <Media file={file} alt={alt} controls className="max-h-[calc(100vh-5rem)] max-w-full rounded-xl object-contain shadow-2xl" />
+          </div>
+          <button type="button" onClick={() => setOpen(false)} title="Close (Esc)" aria-label="Close"
+            className="absolute top-4 right-4 flex size-9 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20">
+            <X size={18} />
+          </button>
+        </div>,
+        document.body,
+      )}
+    </>
   )
 }
 

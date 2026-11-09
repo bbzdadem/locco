@@ -7,7 +7,7 @@ import { estimate, priceLabel, USD_PER_CREDIT } from '../../shared/prices'
 import { sceneTarget } from '../../shared/timing'
 import type { Character, Episode, ReviewIssue, Scene, Series, ShotPlan, Step } from '../../shared/types'
 import { Avatar } from './Characters'
-import { Media } from './Create'
+import { Media, Zoomable } from './Create'
 import { buildEpisodeProject, episodeProject, toProjectRender } from './Studio'
 import { api, errMsg, mediaUrl } from './lib'
 import {
@@ -504,7 +504,7 @@ function SceneDetail({ s, sc, name, tasks, run, refs, people, k, setScene, draw 
     <div className="flex gap-4 rounded-2xl border border-line bg-surface p-3">
       <div className="relative w-56 shrink-0">
         <div className="aspect-[9/16] overflow-hidden rounded-xl bg-raised">
-          {file ? <img src={mediaUrl({ kind: 'media', file })} alt={name} className="size-full object-cover" />
+          {file ? <Zoomable file={file} alt={name} className="size-full"><img src={mediaUrl({ kind: 'media', file })} alt={name} className="size-full object-cover" /></Zoomable>
             : <span className="flex size-full items-center justify-center text-muted">{stateOf(tasks, all[at]) === 'busy' ? <LoaderCircle size={18} className="animate-spin" /> : <ImagePlus size={20} />}</span>}
         </div>
         {all.length > 1 && (
@@ -747,7 +747,7 @@ function VideoStep({ s, ep, tasks, run, rk: k, setEp, go }: StepProps) {
           return (
             <div key={sc.id} className="flex flex-col gap-1">
               <div className="relative aspect-[9/16] overflow-hidden rounded-xl bg-raised">
-                {v ? <Media file={v} alt={nameOf(ep.scenes, sc)} className="size-full object-cover" /> : f && <img src={mediaUrl({ kind: 'media', file: f })} alt="" className="size-full object-cover opacity-60" />}
+                {v ? <Zoomable file={v} alt={nameOf(ep.scenes, sc)} className="size-full"><Media file={v} alt={nameOf(ep.scenes, sc)} className="size-full object-cover" /></Zoomable> : f && <img src={mediaUrl({ kind: 'media', file: f })} alt="" className="size-full object-cover opacity-60" />}
                 {(st === 'busy' || lips === 'busy') && <span className="absolute inset-0 flex items-center justify-center text-white"><LoaderCircle size={18} className="animate-spin" /></span>}
                 <span className="absolute top-1 left-1 rounded bg-black/60 px-1.5 text-[11px] leading-5 text-white tabular-nums">{tagOf(ep.scenes, sc)}</span>
                 {lips && lips !== 'none' && (
