@@ -61,7 +61,8 @@ export async function generate(req: GenerateRequest): Promise<string[]> {
   return ids
 }
 
-// ElevenLabs answers with the audio directly: the job is saved as generating, then finished when the reply arrives.
+// ElevenLabs answers with the audio directly: the job is saved as waiting (in locco's queue), marked generating when it's
+// sent, then finished when the reply arrives.
 function startEleven(model: MediaModel, spec: ModelSpec, req: GenerateRequest) {
   const main = spec.fields.find(isMain)
   if (main?.required && !req.prompt.trim()) throw new Error(main.name === 'text' ? 'Type what the voice should say.' : 'Write a prompt first.')
@@ -80,9 +81,9 @@ function startEleven(model: MediaModel, spec: ModelSpec, req: GenerateRequest) {
     const id = `el-${randomUUID()}`
     ids.push(id)
     db.prepare(
-      "INSERT INTO tasks (id, model_id, variant, label, prompt, input, state, files, project_id, created_at) VALUES (?, ?, ?, ?, ?, ?, 'generating', '[]', ?, ?)",
+      "INSERT INTO tasks (id, model_id, variant, label, prompt, input, state, files, project_id, created_at) VALUES (?, ?, ?, ?, ?, ?, 'waiting', '[]', ?, ?)",
     ).run(id, model.id, req.variant, model.label, req.prompt, JSON.stringify(req.input), req.projectId ?? null, Date.now())
-    void runEleven(model.id, req.prompt.trim(), input)
+    void runEleven(model.id, req.prompt.trim(), input, () => (db.prepare("UPDATE tasks SET state = 'generating' WHERE id = ?").run(id), notify()))
       .then(async ({ bytes, ext }) => {
         await writeFile(join(dirs.media, id + ext), bytes)
         db.prepare("UPDATE tasks SET state = 'success', files = ?, completed_at = ? WHERE id = ?").run(JSON.stringify([id + ext]), Date.now(), id)

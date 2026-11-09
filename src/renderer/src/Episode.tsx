@@ -107,6 +107,8 @@ function ScriptStep({ s, ep, index, cast, things, run, rk: k, setEp, go }: StepP
   const setScene = (id: string, fn: (sc: Scene) => void) => setEp((e) => fn(e.scenes.find((x) => x.id === id)!))
   const fellBack = (by: string) => (by.split('|')[0] !== writer ? `${writerLabel(writer)} didn't answer${by.includes('|') ? ` (${by.split('|')[1]})` : ''}, so ${writerLabel(by.split('|')[0])} wrote this.` : undefined)
   const unplanned = ep.scenes.filter((sc) => !sc.plan).length
+  const notes = (...n: (string | undefined)[]) => n.filter(Boolean).join(' ') || undefined
+  const missed = (n: number) => (n ? `${n} shot${n > 1 ? 's' : ''} didn't get a plan (the writer didn't answer); press Plan ${n} shot${n > 1 ? 's' : ''} to try again.` : undefined)
   const hasMedia = ep.scenes.some((sc) => sc.frameTask || sc.videoTask || sc.lines.some((l) => l.voiceTask))
 
   const write = () => step(k, `Writers' room: beat sheet and shots (${writerLabel(writer)})…`, async () => {
@@ -115,13 +117,13 @@ function ScriptStep({ s, ep, index, cast, things, run, rk: k, setEp, go }: StepP
     setRun(k, { step: `Director: planning ${draft.scenes.length} shots…` })
     const directed = await api.directScript(getSeries(s.id), index, draft.scenes)
     await setEp((e) => e.scenes.forEach((sc, i) => (sc.plan = directed.plans[i] ?? sc.plan)))
-    return fellBack(directed.by) ?? fellBack(draft.by)
+    return notes(missed(directed.failed), fellBack(directed.by) ?? fellBack(draft.by))
   })
-  // Plans for a script written before (or edited after) the director pass. The story itself stays as it is.
-  const addPlans = () => step(k, `Director: planning ${ep.scenes.length} shots…`, async () => {
+  // Plans for the shots that have none (written before the director pass, added later, or missed). The story stays as it is.
+  const addPlans = () => step(k, `Director: planning ${unplanned} shot${unplanned > 1 ? 's' : ''}…`, async () => {
     const out = await api.directScript(getSeries(s.id), index, ep.scenes)
     await setEp((e) => e.scenes.forEach((sc, i) => (sc.plan = out.plans[i] ?? sc.plan)))
-    return fellBack(out.by)
+    return notes(missed(out.failed), fellBack(out.by))
   })
   const improve = (sc: Scene, note: string) => step(k, `Improving shot ${ep.scenes.indexOf(sc) + 1}…`, async () => {
     const out = await api.improveScene(getSeries(s.id), index, ep.scenes, ep.scenes.indexOf(sc), note)
@@ -163,7 +165,7 @@ function ScriptStep({ s, ep, index, cast, things, run, rk: k, setEp, go }: StepP
       <div className="flex flex-wrap items-center gap-2">
         {writerChip}
         {unplanned > 0 && (
-          <button type="button" disabled={busy(run)} onClick={addPlans} className={secondary} title={hasMedia ? 'Plans for every shot; the story, pictures and voices stay as they are' : 'A shot plan for every shot'}>
+          <button type="button" disabled={busy(run)} onClick={addPlans} className={secondary} title={hasMedia ? 'Plans for the shots without one; the story, pictures and voices stay as they are' : 'A shot plan for each shot without one'}>
             <Clapperboard size={13} /> Plan {unplanned} shot{unplanned > 1 ? 's' : ''}
           </button>
         )}
@@ -450,7 +452,8 @@ function VoicesStep({ s, ep, tasks, cast, run, rk: k, setEp, go }: StepProps) {
                     <span className="w-24 shrink-0 truncate font-medium" title={voiceName(voiceFor(cast, l.speaker)) ? `Voice: ${voiceName(voiceFor(cast, l.speaker))}` : 'Default voice'}>{l.speaker}</span>
                     <span className="min-w-0 flex-1 truncate">“{l.text}”</span>
                     {f ? <audio src={mediaUrl({ kind: 'media', file: f })} controls preload="none" className="h-8 w-56 shrink-0" />
-                      : stateOf(tasks, l.voiceTask) === 'busy' ? <LoaderCircle size={14} className="animate-spin text-muted" />
+                      : stateOf(tasks, l.voiceTask) === 'busy' ? (tasks[l.voiceTask!]?.state === 'waiting'
+                        ? <span className="text-faint">In queue</span> : <LoaderCircle size={14} className="animate-spin text-muted" />)
                       : stateOf(tasks, l.voiceTask) === 'fail' ? <span className="text-danger">{tasks[l.voiceTask!]?.error}</span> : <span className="text-faint">not recorded</span>}
                     {l.seconds != null && <span className="w-12 shrink-0 text-right text-faint tabular-nums">{fmt(l.seconds)}</span>}
                     {stateOf(tasks, l.voiceTask) !== 'busy' && l.text.trim() && (

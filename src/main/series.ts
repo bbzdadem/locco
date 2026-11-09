@@ -232,25 +232,34 @@ export async function writeScript(s: Series, index: number): Promise<{ beats: st
 
 const plain = (scenes: Scene[]) => scenes.map(({ place, action, cast, lines, plan }) => ({ place, action, cast, lines: lines.map(({ speaker, text }) => ({ speaker, text })), ...(plan && { plan }) }))
 
-// Pass 2, the director: a shot plan for every shot. Each shot is planned on its own (five at a time) with the whole
-// episode as context, so plans stay in continuity and a full episode is planned in about a minute. The story itself
-// stays as written (the writers' room already reviewed it); Improve shot rewrites a single shot.
-export async function directScript(s: Series, index: number, scenes: Scene[]): Promise<{ plans: (ShotPlan | undefined)[]; by: string }> {
+// Pass 2, the director: a plan for every shot that has none. Each shot is planned on its own (five at a time) with the
+// whole episode as context, so plans stay in continuity and a full episode is planned in about a minute. A shot that
+// fails is left without a plan (the others keep theirs) and counted in `failed`, so "Plan N shots" can try it again.
+export async function directScript(s: Series, index: number, scenes: Scene[]): Promise<{ plans: (ShotPlan | undefined)[]; by: string; failed: number }> {
   const context = JSON.stringify({ episode: s.episodes[index].title, shots: plain(scenes) })
-  const results = await pool(scenes.map((_, i) => async () => {
-    const { text, by } = await write(s, [
-      'You are the director of a vertical short series. Write the shot plan for ONE shot of the episode, in continuity with the shots around it.',
-      CRAFT,
-      DIRECTION,
-      storySoFar(s, index),
-      'Keep the shot\'s place, action, cast and lines as they are. Vary framing and movement from the neighbouring shots.',
-      'Reply with JSON only: {"shot": "...", "beats": "...", "performance": "...", "move": "...", "environment": "...", "sound": "...", "text": "", "transition": "..."}',
-      'Write in the language of the series.',
-    ].join('\n\n'), `Plan shot ${i + 1} of ${scenes.length}.\n${context}`)
-    const raw = json<any>(text)
-    return { plan: planFrom(raw.plan ?? raw), by }
+  const errors: unknown[] = []
+  const results = await pool(scenes.map((sc, i) => async () => {
+    if (sc.plan) return undefined
+    try {
+      const { text, by } = await write(s, [
+        'You are the director of a vertical short series. Write the shot plan for ONE shot of the episode, in continuity with the shots around it.',
+        CRAFT,
+        DIRECTION,
+        storySoFar(s, index),
+        'Keep the shot\'s place, action, cast and lines as they are. Vary framing and movement from the neighbouring shots.',
+        'Reply with JSON only: {"shot": "...", "beats": "...", "performance": "...", "move": "...", "environment": "...", "sound": "...", "text": "", "transition": "..."}',
+        'Write in the language of the series.',
+      ].join('\n\n'), `Plan shot ${i + 1} of ${scenes.length}.\n${context}`)
+      const raw = json<any>(text)
+      return { plan: planFrom(raw.plan ?? raw), by }
+    } catch (e) {
+      errors.push(e)
+      return undefined
+    }
   }), 5)
-  return { plans: results.map((r) => r.plan), by: results.find((r) => r.by !== writerOf(s))?.by ?? writerOf(s) }
+  const done = results.filter((r) => r?.plan)
+  if (!done.length && errors.length) throw errors[0]
+  return { plans: results.map((r) => r?.plan), by: done.find((r) => r!.by !== writerOf(s))?.by ?? writerOf(s), failed: results.filter((r, i) => !scenes[i].plan && !r?.plan).length }
 }
 
 // Rewrites one shot (and its plan) to be stronger, in context, optionally following your note.

@@ -77,16 +77,20 @@ async function audio(res: Response) {
   return { bytes: new Uint8Array(await res.arrayBuffer()), ext: type.includes('wav') ? '.wav' : '.mp3' }
 }
 
-// ponytail: one global limit of 3; raise it if your ElevenLabs plan allows more parallel requests.
+// Your ElevenLabs plan runs 5 requests at once; the rest wait here in order (shown as "In queue") instead of being refused.
+// ponytail: one global limit; change LIMIT if the plan changes.
+const LIMIT = 5
 let active = 0
 const waiting: (() => void)[] = []
-const slot = () => (active < 3 ? (active++, Promise.resolve()) : new Promise<void>((r) => waiting.push(() => (active++, r()))))
+const slot = () => (active < LIMIT ? (active++, Promise.resolve()) : new Promise<void>((r) => waiting.push(() => (active++, r()))))
 const free = () => (active--, waiting.shift()?.())
 
-export async function runEleven(modelId: string, prompt: string, input: Record<string, unknown>) {
+// onStart runs when the request leaves the queue and goes to ElevenLabs.
+export async function runEleven(modelId: string, prompt: string, input: Record<string, unknown>, onStart = () => {}) {
   for (let attempt = 0; ; attempt++) {
     await slot()
     try {
+      if (attempt === 0) onStart()
       return await runOnce(modelId, prompt, input)
     } catch (e) {
       // "Too many concurrent requests" (from another app on the same key, say): wait and try again a few times.

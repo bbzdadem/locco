@@ -350,11 +350,14 @@ export async function complete(modelId: string, system: string, user: string, si
     ? { path: '/codex/v1/responses', body: { model: model.id, reasoning: { effort }, input: [
         { role: 'developer', content: [{ type: 'input_text', text: system }] }, { role: 'user', content: [{ type: 'input_text', text: user }, ...pictures] }] } }
     : { path: `/${model.id}/v1/chat/completions`, body: { messages: [{ role: 'system', content: system }, { role: 'user', content: user }], reasoning_effort: effort }}
-  let text = ''
-  const credits = await turn(model, path, body, signal, new Map(), (t) => (text += t ?? ''))
-  spend(model.id, credits ?? 0)
-  if (!text.trim()) throw new Error(`${model.label} sent back nothing.`)
-  return text.trim()
+  // kie now and then ends a reply before any text arrives (unbilled); ask again, up to three times in all.
+  for (let attempt = 0; ; attempt++) {
+    let text = ''
+    const credits = await turn(model, path, body, signal, new Map(), (t) => (text += t ?? ''))
+    spend(model.id, credits ?? 0)
+    if (text.trim()) return text.trim()
+    if (attempt >= 2 || signal.aborted) throw new Error(`${model.label} sent back nothing.`)
+  }
 }
 
 export const enhancePrompt = (prompt: string, kind: MediaKind, modelLabel: string) =>
