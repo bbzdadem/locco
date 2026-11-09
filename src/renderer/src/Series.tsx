@@ -217,6 +217,10 @@ function SeriesHome({ ads, list, characters, tasks, justDeleted, onUndone, onOpe
 function AdsForm({ characters, tasks, onOpen, onCharacter }: { characters: Character[]; tasks: Tasks; onOpen: (id: string) => void; onCharacter: (id: string) => void }) {
   const [description, setDescription] = useState('')
   const [photos, setPhotos] = useState<Attachment[]>([])
+  // Or a product already saved in Elements: used as it is (name, look, photos, image and angles).
+  const [productId, setProductId] = useState<string>()
+  const products = characters.filter((c) => c.category === 'product')
+  const chosen = products.find((c) => c.id === productId)
   const [ads, setAds] = useState('3')
   const [seconds, setSeconds] = useState('15')
   const [cast, setCast] = useState<string[]>([])
@@ -230,17 +234,18 @@ function AdsForm({ characters, tasks, onOpen, onCharacter }: { characters: Chara
     const all = [...photos, ...added.filter((a) => !photos.some((p) => p.file === a.file))]
     setError(!added.length ? 'Product photos must be PNG, JPG or WebP.' : all.length > 4 ? 'Up to 4 photos; the first 4 are kept.' : '')
     setPhotos(all.slice(0, 4))
+    if (added.length) setProductId(undefined)
   }
   async function write() {
-    if (!description.trim() || busy) return
+    if ((!description.trim() && !chosen) || busy) return
     setBusy(true)
     setError('')
     try {
-      const { series } = await api.writeAds({ description: description.trim(), photos }, Number(ads), Number(seconds), cast, elementIds)
+      const { series } = await api.writeAds({ description: description.trim(), photos: chosen ? [] : photos, id: chosen?.id }, Number(ads), Number(seconds), cast, elementIds)
       await api.saveSeries(series)
       await loadAll()
       onOpen(series.id)
-      if (series.product) onCharacter(series.product)
+      if (series.product && !chosen) onCharacter(series.product) // a new product opens so you can check it
     } catch (e) {
       setError(errMsg(e))
     } finally {
@@ -267,7 +272,26 @@ function AdsForm({ characters, tasks, onOpen, onCharacter }: { characters: Chara
   return (
     <div className="flex flex-col gap-3 rounded-3xl border border-line bg-surface p-4 shadow-[0_2px_12px_rgba(0,0,0,0.04)]"
       onDragOver={(e) => e.preventDefault()} onDrop={(e) => (e.preventDefault(), void addPhotos(e.dataTransfer.files))}>
+      {products.length > 0 && (
+        <div className="flex flex-col gap-1.5 px-1">
+          <span className="text-xs text-muted">Start from a saved product, or add photos of a new one</span>
+          <div className="flex flex-wrap gap-1.5">
+            {products.map((c) => (
+              <button key={c.id} type="button" aria-pressed={c.id === productId} onClick={() => setProductId(c.id === productId ? undefined : c.id)}
+                className={`inline-flex h-8 items-center gap-1.5 rounded-full border pr-3 pl-1 text-[13px] ${c.id === productId ? 'border-fg bg-raised' : 'border-line text-muted hover:bg-raised'}`}>
+                <Avatar c={c} t={tasks} size="size-6" /> {c.name || 'Unnamed'} {c.id === productId && <Check size={12} />}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="flex gap-3">
+        {chosen ? (
+          <div className="flex w-28 shrink-0 flex-col items-center gap-1">
+            <Avatar c={chosen} t={tasks} size="aspect-square w-full" />
+            <button type="button" className="text-center text-[11px] text-faint underline" onClick={() => setProductId(undefined)}>Use new photos instead</button>
+          </div>
+        ) : (
         <div className="flex w-28 shrink-0 flex-col items-center gap-1">
           <button type="button" onClick={() => picker.current?.click()} title="Product photos (up to 4): every shot is drawn from them"
             className="flex aspect-square w-full items-center justify-center overflow-hidden rounded-xl border border-dashed border-line text-muted hover:border-fg hover:text-fg">
@@ -293,8 +317,11 @@ function AdsForm({ characters, tasks, onOpen, onCharacter }: { characters: Chara
           </span>
           <input ref={picker} type="file" multiple accept={ACCEPT_IMAGES} hidden onChange={(e) => (e.target.files && void addPhotos(e.target.files), (e.target.value = ''))} />
         </div>
+        )}
         <textarea id="ads-product" rows={5} value={description} onChange={(e) => setDescription(e.target.value)}
-          placeholder="The product: what it is, what it does, who it's for, the price or offer. A rechargeable mini blender, blends a smoothie in 30 seconds, fits a bag, $29 with free shipping. For gym-goers and busy parents."
+          placeholder={chosen
+            ? `What ${chosen.name} does, who it's for, the price or offer. Its look, photos and angles are already saved.`
+            : "The product: what it is, what it does, who it's for, the price or offer. A rechargeable mini blender, blends a smoothie in 30 seconds, fits a bag, $29 with free shipping. For gym-goers and busy parents."}
           className="min-w-0 flex-1 resize-none bg-transparent px-1 text-[15px] leading-relaxed placeholder:text-faint" />
       </div>
       <div className="flex flex-col gap-1.5 px-1">
@@ -309,7 +336,7 @@ function AdsForm({ characters, tasks, onOpen, onCharacter }: { characters: Chara
         <SelectChip title="Ads" label={`${ads} ads`} value={ads} onChange={setAds} options={['3', '5', '8'].map((n) => ({ value: n, label: `${n} ads` }))} />
         <SelectChip title="Ad length" label={`${seconds} s each`} value={seconds} onChange={setSeconds} options={['15', '20', '30'].map((n) => ({ value: n, label: `${n} seconds` }))} />
         <span className="text-xs text-faint">9:16 · 3 hooks per ad</span>
-        <button type="button" disabled={!description.trim() || busy} onClick={write} className="ml-auto inline-flex h-9 items-center gap-2 rounded-full bg-inverse px-4 font-medium text-on-inverse disabled:opacity-35">
+        <button type="button" disabled={(!description.trim() && !chosen) || busy} onClick={write} className="ml-auto inline-flex h-9 items-center gap-2 rounded-full bg-inverse px-4 font-medium text-on-inverse disabled:opacity-35">
           {busy ? <LoaderCircle size={15} className="animate-spin" /> : <Megaphone size={15} />} {busy ? 'Writing…' : 'Write the product brief'}
         </button>
       </div>
@@ -345,7 +372,7 @@ function SeriesEditor({ header, s, characters, tasks, runs, onBack, onDeleted, o
   const things = (s.elements ?? []).map((id) => characters.find((c) => c.id === id)).filter((c): c is Character => !!c)
   const elements = things.filter((c) => c.id !== s.product)
   const product = things.find((c) => c.id === s.product)
-  const otherElements = characters.filter((c) => c.kind === 'element' && !(s.elements ?? []).includes(c.id))
+  const otherElements = characters.filter((c) => c.kind === 'element' && !(s.elements ?? []).includes(c.id) && !(ad && c.category === 'product'))
   const word = ad ? 'ad' : 'episode'
   const set = (fn: (x: Series) => void) => void updateSeries(s.id, fn)
   const running = (e: Episode) => !!runs[`${s.id}:${e.id}`]?.step

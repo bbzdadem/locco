@@ -12,6 +12,7 @@ import type { Attachment, Character, Episode, Ref, RenderRequest, Scene, Series,
 import { complete } from './chat'
 import { db, dirs } from './db'
 import { pathOf } from './media'
+import { getTask } from './tasks'
 
 export const run = promisify(execFile)
 const WRITER = 'gpt-6-sol'
@@ -183,6 +184,9 @@ export async function writeSeries(idea: string, episodes: number, seconds: numbe
 }
 
 const isAd = (s: Series) => s.kind === 'ad'
+// Ads are always written in English, whatever language the product's description or label is in.
+const ENGLISH = 'Write everything in English, even when the description, brief or product label is in another language; quote label text exactly as printed.'
+const languageOf = (s: Series) => (isAd(s) ? ENGLISH : 'Write in the language of the series.')
 const adContext = (s: Series, index: number) => {
   const product = charactersById([s.product ?? ''])[0]
   return [
@@ -196,13 +200,22 @@ const adContext = (s: Series, index: number) => {
   ].join('\n\n')
 }
 // A product's ads: the product brief, the product as an element (from your photo), people and places, and the ads to make.
-export async function writeAds(product: { description: string; photos: Attachment[] }, ads: number, seconds: number, castIds: string[], elementIds: string[]):
+// A saved product (id) is used as it is: its name, look, photos and picked image; otherwise one is made from the photos.
+export async function writeAds(product: { description: string; photos: Attachment[]; id?: string }, ads: number, seconds: number, castIds: string[], elementIds: string[]):
   Promise<{ series: Series; created: Character[] }> {
   const cast = charactersById(castIds)
   const elements = charactersById(elementIds)
+  const saved = product.id ? charactersById([product.id])[0] : undefined
+  if (product.id && !saved) throw new Error('That product is no longer in Elements.')
+  const picked = saved?.portraitTask && getTask(saved.portraitTask)?.files[0]
+  const photos = saved
+    ? [saved.photo, ...(saved.photos ?? []), picked ? { kind: 'media' as const, file: picked, name: picked, mime: 'image/png' } : undefined].filter((p): p is Attachment => !!p).slice(0, 5)
+    : product.photos.slice(0, 4)
+  const description = product.description.trim() || saved?.look || ''
   const out = json<any>(await complete(WRITER, [
     'You are the creative strategist for organic TikTok/Reels product videos (the dropshipping style: filmed on a phone by real people, never like a commercial).',
-    `From the product description${product.photos.length > 1 ? ' and the attached photos (the same product from different sides)' : product.photos.length ? ' and the attached photo' : ''}, write the product brief and plan the ads. Reply with JSON only:`,
+    `From the product description${photos.length > 1 ? ' and the attached photos (the same product from different sides)' : photos.length ? ' and the attached photo' : ''}, write the product brief and plan the ads. Reply with JSON only:`,
+    saved && `The product is already saved as "${saved.name}". Looks: ${saved.look} Use that name in the ads; leave "name" and "look" empty.`,
     '{"name": "the product\'s short name, as shots will mention it (2-3 words)",',
     ' "look": "a precise visual description of the product an image model can repeat: shape, size, colours, materials, finish, parts, logo and label text exactly as printed",',
     ' "logline": "the angle in one sentence: who it is for and what it does for them",',
@@ -217,11 +230,11 @@ export async function writeAds(product: { description: string; photos: Attachmen
     `Places and props already chosen:\n${elementText(elements)}`,
     'Add new_elements (0 to 2) only for places or props that recur across the ads (the kitchen, the car).',
     `Voices to choose from (name only): ${voiceList()}.`,
-    'Write in the language of the description.',
-  ].join('\n'), product.description, undefined, product.photos.slice(0, 4)))
-  const item: Character = {
+    ENGLISH,
+  ].filter(Boolean).join('\n'), description, undefined, photos))
+  const item: Character = saved ?? {
     id: randomUUID(), kind: 'element', category: 'product', name: str(out.name) || 'The product', look: str(out.look), personality: '',
-    ...(product.photos[0] && { photo: product.photos[0] }), ...(product.photos.length > 1 && { photos: product.photos.slice(1, 4) }), createdAt: Date.now(),
+    ...(photos[0] && { photo: photos[0] }), ...(photos.length > 1 && { photos: photos.slice(1, 4) }), createdAt: Date.now(),
   }
   const people: Character[] = (out.new_characters ?? []).slice(0, 2).map((c: any) => ({
     id: randomUUID(), name: str(c.name), look: str(c.look), personality: str(c.personality), voice: voiceId(c.voice), createdAt: Date.now(),
@@ -229,12 +242,12 @@ export async function writeAds(product: { description: string; photos: Attachmen
   const places: Character[] = (out.new_elements ?? []).slice(0, 2).map((e: any) => ({
     id: randomUUID(), kind: 'element', name: str(e.name), look: str(e.look), personality: '', category: e.category === 'prop' ? 'prop' : 'place', createdAt: Date.now(),
   }))
-  const created = [item, ...people, ...places]
+  const created = [...(saved ? [] : [item]), ...people, ...places]
   created.forEach(saveCharacter)
   return {
     created,
     series: {
-      id: randomUUID(), kind: 'ad', product: item.id, title: item.name, idea: product.description, logline: str(out.logline), style: str(out.style),
+      id: randomUUID(), kind: 'ad', product: item.id, title: item.name, idea: description, logline: str(out.logline), style: str(out.style),
       seconds, imageModel: 'gpt-image-2', videoModel: 'kling-3', videoSound: false,
       cast: [...cast, ...people].map((c) => c.id), elements: [item, ...elements, ...places].map((e) => e.id), continuity: str(out.brief),
       episodes: (out.ads ?? []).slice(0, ads).map((e: any) => ({ id: randomUUID(), title: str(e.title), summary: str(e.summary), format: formatOf(str(e.format))?.id, step: 'script', scenes: [], music: false })),
@@ -342,7 +355,7 @@ async function writeAd(s: Series, index: number) {
     `Name the product exactly as "${product?.name ?? s.title}" in every shot it is in; name people, places and props exactly. A shot without a line gets "seconds" (1.5-3); a shot with a line runs as long as the line.`,
     'If the ad brief already has lines, beats or timings, keep them; build on them.',
     `Reply with JSON only:\n${AD_SCRIPT_JSON}`,
-    'Write in the language of the brief.',
+    ENGLISH,
   ].join('\n\n'), `Ad ${index + 1}: ${ep.title}\n${ep.summary}`)
   const out = json<{ beats?: string; format?: string; hooks?: any[]; scenes?: any[] }>(text)
   const hooks = (out.hooks ?? []).slice(0, 3).map((h, i) => ({ ...h, hook: HOOKS[i] }))
@@ -369,7 +382,7 @@ export async function directScript(s: Series, index: number, scenes: Scene[]): P
         'Keep the shot\'s place, action, cast and lines as they are. Vary framing and movement from the neighbouring shots.',
         isAd(s) && 'Shots marked with a hook letter are alternative openings: each must work as the first shot of the ad on its own.',
         'Reply with JSON only: {"shot": "...", "beats": "...", "performance": "...", "move": "...", "environment": "...", "sound": "...", "text": "", "transition": "..."}',
-        'Write in the language of the series.',
+        languageOf(s),
       ].filter(Boolean).join('\n\n'), `Plan shot ${i + 1} of ${scenes.length}${sc.hook ? ` (hook ${sc.hook})` : ''}, this one:\n${JSON.stringify(plain([sc])[0])}\n\nAll the shots, for context:\n${context}`)
       const raw = json<any>(text)
       const plan = planFrom(raw.plan ?? raw)
@@ -392,7 +405,7 @@ export async function improveScene(s: Series, index: number, scenes: Scene[], at
     direction(s),
     storySoFar(s, index),
     `Reply with JSON only, just this shot:\n${directedJson(s).replace('{"scenes": [', '').replace(/\]\}$/, '')}`,
-    'Write in the language of the series.',
+    languageOf(s),
   ].join('\n\n'), JSON.stringify({ shotToImprove: at + 1, note: note || 'make it better', scenes: plain(scenes) }))
   const raw = json<any>(text)
   const [scene] = scenesFrom({ scenes: [raw.scenes?.[0] ?? raw] })
@@ -409,7 +422,8 @@ export async function reviseScript(s: Series, index: number, scenes: Scene[], ch
     storySoFar(s, index),
     `Current episode:\n${JSON.stringify({ scenes: plain(scenes) })}`,
     `Reply with the full revised ${isAd(s) ? 'ad' : 'episode'}, JSON only:\n${directedJson(s)}`,
-    'Never more than 15 shots, at most 2 lines per shot. Write in the language of the series.',
+    'Never more than 15 shots, at most 2 lines per shot.',
+    languageOf(s),
   ].filter(Boolean).join('\n\n'), change)
   return scenesFrom(json(text))
 }
@@ -425,7 +439,7 @@ export async function improveSummary(s: Series, index: number, text: string) {
       ? 'If the brief is short or vague: rewrite it as 2-3 sentences: the hook (with its on-screen text), the moment the product works on camera, the payoff and a soft call to action, different from the other ads.'
       : 'If the brief is short or vague: rewrite it as 2-4 sentences with a hook in the first seconds, a clear turn and a punchline or cliffhanger, consistent with the story so far.',
     'If it is already detailed (beats, timings, dialogue): keep every line of dialogue, name, fact and timing exactly; only tidy it into clear numbered beats and fix gaps.',
-    'Reply with the brief only: plain text (no Markdown, no bold), no preamble, in the language it was written in.',
+    `Reply with the brief only: plain text (no Markdown, no bold), no preamble, ${isAd(s) ? 'in English' : 'in the language it was written in'}.`,
   ].join('\n\n'), text.trim() || '(empty: propose a strong next episode)')
 }
 
