@@ -196,13 +196,13 @@ const adContext = (s: Series, index: number) => {
   ].join('\n\n')
 }
 // A product's ads: the product brief, the product as an element (from your photo), people and places, and the ads to make.
-export async function writeAds(product: { description: string; photo?: Attachment }, ads: number, seconds: number, castIds: string[], elementIds: string[]):
+export async function writeAds(product: { description: string; photos: Attachment[] }, ads: number, seconds: number, castIds: string[], elementIds: string[]):
   Promise<{ series: Series; created: Character[] }> {
   const cast = charactersById(castIds)
   const elements = charactersById(elementIds)
   const out = json<any>(await complete(WRITER, [
     'You are the creative strategist for organic TikTok/Reels product videos (the dropshipping style: filmed on a phone by real people, never like a commercial).',
-    `From the product description${product.photo ? ' and the attached photo' : ''}, write the product brief and plan the ads. Reply with JSON only:`,
+    `From the product description${product.photos.length > 1 ? ' and the attached photos (the same product from different sides)' : product.photos.length ? ' and the attached photo' : ''}, write the product brief and plan the ads. Reply with JSON only:`,
     '{"name": "the product\'s short name, as shots will mention it (2-3 words)",',
     ' "look": "a precise visual description of the product an image model can repeat: shape, size, colours, materials, finish, parts, logo and label text exactly as printed",',
     ' "logline": "the angle in one sentence: who it is for and what it does for them",',
@@ -218,10 +218,10 @@ export async function writeAds(product: { description: string; photo?: Attachmen
     'Add new_elements (0 to 2) only for places or props that recur across the ads (the kitchen, the car).',
     `Voices to choose from (name only): ${voiceList()}.`,
     'Write in the language of the description.',
-  ].join('\n'), product.description, undefined, product.photo ? [product.photo] : []))
+  ].join('\n'), product.description, undefined, product.photos.slice(0, 4)))
   const item: Character = {
     id: randomUUID(), kind: 'element', category: 'product', name: str(out.name) || 'The product', look: str(out.look), personality: '',
-    ...(product.photo && { photo: product.photo }), createdAt: Date.now(),
+    ...(product.photos[0] && { photo: product.photos[0] }), ...(product.photos.length > 1 && { photos: product.photos.slice(1, 4) }), createdAt: Date.now(),
   }
   const people: Character[] = (out.new_characters ?? []).slice(0, 2).map((c: any) => ({
     id: randomUUID(), name: str(c.name), look: str(c.look), personality: str(c.personality), voice: voiceId(c.voice), createdAt: Date.now(),

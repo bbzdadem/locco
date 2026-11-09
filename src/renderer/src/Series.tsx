@@ -216,7 +216,7 @@ function SeriesHome({ ads, list, characters, tasks, justDeleted, onUndone, onOpe
 // photo), the brief, the people and places the ads need, and the ads to make; then the product opens so you can check it.
 function AdsForm({ characters, tasks, onOpen, onCharacter }: { characters: Character[]; tasks: Tasks; onOpen: (id: string) => void; onCharacter: (id: string) => void }) {
   const [description, setDescription] = useState('')
-  const [photo, setPhoto] = useState<Attachment>()
+  const [photos, setPhotos] = useState<Attachment[]>([])
   const [ads, setAds] = useState('3')
   const [seconds, setSeconds] = useState('15')
   const [cast, setCast] = useState<string[]>([])
@@ -224,17 +224,19 @@ function AdsForm({ characters, tasks, onOpen, onCharacter }: { characters: Chara
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const picker = useRef<HTMLInputElement>(null)
-  const addPhoto = async (files: FileList | File[]) => {
-    const [a] = await toAttachments(files, ACCEPT_IMAGES)
-    setError(a ? '' : 'The product photo must be PNG, JPG or WebP.')
-    if (a) setPhoto(a)
+  // Up to 4 photos: the first is the main one; the others show the back, the label, the box.
+  const addPhotos = async (files: FileList | File[]) => {
+    const added = await toAttachments(files, ACCEPT_IMAGES)
+    const all = [...photos, ...added.filter((a) => !photos.some((p) => p.file === a.file))]
+    setError(!added.length ? 'Product photos must be PNG, JPG or WebP.' : all.length > 4 ? 'Up to 4 photos; the first 4 are kept.' : '')
+    setPhotos(all.slice(0, 4))
   }
   async function write() {
     if (!description.trim() || busy) return
     setBusy(true)
     setError('')
     try {
-      const { series } = await api.writeAds({ description: description.trim(), photo }, Number(ads), Number(seconds), cast, elementIds)
+      const { series } = await api.writeAds({ description: description.trim(), photos }, Number(ads), Number(seconds), cast, elementIds)
       await api.saveSeries(series)
       await loadAll()
       onOpen(series.id)
@@ -264,15 +266,32 @@ function AdsForm({ characters, tasks, onOpen, onCharacter }: { characters: Chara
   )
   return (
     <div className="flex flex-col gap-3 rounded-3xl border border-line bg-surface p-4 shadow-[0_2px_12px_rgba(0,0,0,0.04)]"
-      onDragOver={(e) => e.preventDefault()} onDrop={(e) => (e.preventDefault(), void addPhoto(e.dataTransfer.files))}>
+      onDragOver={(e) => e.preventDefault()} onDrop={(e) => (e.preventDefault(), void addPhotos(e.dataTransfer.files))}>
       <div className="flex gap-3">
         <div className="flex w-28 shrink-0 flex-col items-center gap-1">
-          <button type="button" onClick={() => picker.current?.click()} title="The product photo: every shot is drawn from it"
+          <button type="button" onClick={() => picker.current?.click()} title="Product photos (up to 4): every shot is drawn from them"
             className="flex aspect-square w-full items-center justify-center overflow-hidden rounded-xl border border-dashed border-line text-muted hover:border-fg hover:text-fg">
-            {photo ? <img src={mediaUrl(photo)} alt="Product photo" className="size-full object-cover" /> : <ImagePlus size={20} />}
+            {photos[0] ? <img src={mediaUrl(photos[0])} alt="Main product photo" className="size-full object-cover" /> : <ImagePlus size={20} />}
           </button>
-          <span className="text-center text-[11px] text-faint">{photo ? <button type="button" className="underline" onClick={() => setPhoto(undefined)}>Remove</button> : 'Product photo'}</span>
-          <input ref={picker} type="file" accept={ACCEPT_IMAGES} hidden onChange={(e) => (e.target.files && void addPhoto(e.target.files), (e.target.value = ''))} />
+          {photos.length > 0 && (
+            <div className="flex flex-wrap justify-center gap-1">
+              {photos.slice(1).map((p, i) => (
+                <button key={p.file} type="button" title="Remove this photo" onClick={() => setPhotos(photos.filter((x) => x.file !== p.file))}
+                  className="group relative size-7 overflow-hidden rounded-md border border-line">
+                  <img src={mediaUrl(p)} alt={`Product photo ${i + 2}`} className="size-full object-cover" />
+                  <span className="absolute inset-0 hidden items-center justify-center bg-black/50 text-white group-hover:flex"><X size={11} /></span>
+                </button>
+              ))}
+              {photos.length < 4 && (
+                <button type="button" title="Add another photo: the back, the label, the box" onClick={() => picker.current?.click()}
+                  className="flex size-7 items-center justify-center rounded-md border border-dashed border-line text-muted hover:border-fg hover:text-fg"><Plus size={12} /></button>
+              )}
+            </div>
+          )}
+          <span className="text-center text-[11px] text-faint">
+            {photos.length ? <button type="button" className="underline" onClick={() => setPhotos(photos.slice(1))}>Remove main</button> : 'Product photos (up to 4)'}
+          </span>
+          <input ref={picker} type="file" multiple accept={ACCEPT_IMAGES} hidden onChange={(e) => (e.target.files && void addPhotos(e.target.files), (e.target.value = ''))} />
         </div>
         <textarea id="ads-product" rows={5} value={description} onChange={(e) => setDescription(e.target.value)}
           placeholder="The product: what it is, what it does, who it's for, the price or offer. A rechargeable mini blender, blends a smoothie in 30 seconds, fits a bag, $29 with free shipping. For gym-goers and busy parents."

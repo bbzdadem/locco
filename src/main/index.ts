@@ -180,7 +180,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('series:restore', (_e, id: string) => restoreSeries(id))
   ipcMain.handle('series:write', (_e, idea: string, episodes: number, seconds: number, cast: string[], style?: { text?: string; refs?: Attachment[] }, elements?: string[]) =>
     writeSeries(idea, episodes, seconds, cast, style, elements))
-  ipcMain.handle('ads:write', (_e, product: { description: string; photo?: Attachment }, ads: number, seconds: number, cast: string[], elements: string[]) =>
+  ipcMain.handle('ads:write', (_e, product: { description: string; photos: Attachment[] }, ads: number, seconds: number, cast: string[], elements: string[]) =>
     writeAds(product, ads, seconds, cast, elements))
   ipcMain.handle('series:script', (_e, s: Series, index: number) => writeScript(s, index))
   ipcMain.handle('series:direct', (_e, s: Series, index: number, scenes: Scene[]) => directScript(s, index, scenes))

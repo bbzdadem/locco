@@ -116,6 +116,8 @@ export type Character = {
   personality: string
   voice?: string
   photo?: Attachment
+  // A product's other photos (its back, the label, the box), next to the main one in photo.
+  photos?: Attachment[]
   options?: string[]
   portraitTask?: string
   sheetTask?: string

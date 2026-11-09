@@ -156,14 +156,17 @@ export const elementsOf = (s: Series, all: Character[], scene: Scene) => {
 // A character's references: the reference sheet (if made) and the chosen portrait.
 export const refsOf = (t: Tasks, c: Character) => [fileOf(t, c.sheetTask), fileOf(t, c.portraitTask)].filter((f): f is string => !!f)
 const isProduct = (c: Character) => c.category === 'product'
-// The images sent for one character or element: its references, and a product's own photo (the truth for its label and shape).
-export const refImages = (t: Tasks, c: Character): Attachment[] => [...refsOf(t, c).map(img), ...(isProduct(c) && c.photo ? [c.photo] : [])]
+// Every photo of a character or element, the main one first.
+export const photosOf = (c: Character) => [c.photo, ...(c.photos ?? [])].filter((p): p is Attachment => !!p)
+// The images sent for one character or element: its references, and a product's own photos (the truth for its label and shape).
+// ponytail: a shot gets only the first 2 photos, so a busy shot stays within Nano Banana Pro's 8 images; the image and angles carry the rest.
+export const refImages = (t: Tasks, c: Character): Attachment[] => [...refsOf(t, c).map(img), ...(isProduct(c) ? photosOf(c).slice(0, 2) : [])]
 // Ready to be drawn: a portrait is picked, or (a product) there is a photo of it.
 export const ready = (t: Tasks, c: Character) => !!fileOf(t, c.portraitTask) || (isProduct(c) && !!c.photo)
 
 export const portraitPrompt = (c: Character, style = '') =>
   isProduct(c)
-    ? `Product photo of exactly ${c.photo ? 'the product in the reference photo' : 'this product'} (${c.name}): ${c.look}. Same shape, proportions, colours, materials, logo and label text, letter for letter. The whole product centred on a plain light grey background, soft even light, no added text, no props, no hands.`
+    ? `Product photo of exactly ${photosOf(c).length > 1 ? 'the product in the reference photos (the same product from different sides)' : c.photo ? 'the product in the reference photo' : 'this product'} (${c.name}): ${c.look}. Same shape, proportions, colours, materials, logo and label text, letter for letter. The whole product centred on a plain light grey background, soft even light, no added text, no props, no hands.`
     : c.kind === 'element'
     ? c.category === 'place'
       ? `Reference image of the place ${c.name}: ${c.look}. ${style} Wide establishing view, vertical 9:16, no people, no text.`
@@ -172,7 +175,7 @@ export const portraitPrompt = (c: Character, style = '') =>
   `Character portrait for a short film: ${c.name}, ${c.look}. ${style} Head and shoulders, facing the camera, neutral expression, plain light grey background, sharp focus, no text.`
 export const sheetPrompt = (c: Character) =>
   isProduct(c)
-    ? `Product reference sheet of exactly this product (${c.name}): front, back, side and three-quarter views and a close-up of the label, side by side on a plain light grey background. The same shape, proportions, colours, materials, logo and label text in every view, letter for letter. No added text, no hands.`
+    ? `Product reference sheet of exactly this product (${c.name}): front, back, side and three-quarter views and a close-up of the label, side by side on a plain light grey background. The same shape, proportions, colours, materials, logo and label text in every view, letter for letter.${photosOf(c).length ? ' The other images are photos of the real product: take every side you can see in them from the photos, not from imagination.' : ''} No added text, no hands.`
     : c.kind === 'element'
     ? c.category === 'place'
       ? `Three views of exactly this place (${c.name}) side by side: wide establishing, medium, close detail. Same layout, materials, colours and light as the reference image. No people, no text.`

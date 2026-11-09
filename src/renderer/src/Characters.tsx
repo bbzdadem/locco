@@ -2,9 +2,9 @@ import { Box, Check, ImagePlus, LoaderCircle, Minus, Pause, Plus, RotateCcw, Tra
 import { useEffect, useRef, useState } from 'react'
 import { ELEVEN_VOICES } from '../../shared/models'
 import { estimate, priceLabel } from '../../shared/prices'
-import type { Character, Series } from '../../shared/types'
+import type { Attachment, Character, Series } from '../../shared/types'
 import { ACCEPT_IMAGES, api, errMsg, mediaUrl, toAttachments } from './lib'
-import { fileOf, getChar, img, makeOne, portraitPrompt, removeChar, saveChar, sheetPrompt, stateOf, type Tasks, updateChar, voiceName } from './seriesStore'
+import { fileOf, getChar, img, makeOne, photosOf, portraitPrompt, removeChar, saveChar, sheetPrompt, stateOf, type Tasks, updateChar, voiceName } from './seriesStore'
 import { IconButton, SelectChip } from './ui'
 import { VoiceTools } from './Voices'
 
@@ -109,19 +109,25 @@ export function CharacterBuilder({ id, tasks, usedIn, onClose }: { id: string; t
   const el = c.kind === 'element'
   const shape = el ? (c.category === 'place' ? '9:16' : '1:1') : '3:4'
   const each = priceLabel(estimate(CHAR_MODEL, { resolution: '1K' }))
+  // A product can have up to 4 photos (the back, the label, the box); the image, its angles and the writer see them all.
+  const product = c.category === 'product'
+  const photos = photosOf(c)
+  const setPhotos = (all: Attachment[]) => set({ photo: all[0], photos: all.slice(1) })
+  // The angles are drawn from the picked image, and a product's photos show its real sides.
+  const sheetRefs = (file: string) => [img(file), ...(product ? photos : [])]
 
   const makeOptions = () => act('options', async () => {
-    const ids = await makeOne(CHAR_MODEL, { aspect_ratio: shape, resolution: '1K' }, c.photo ? [c.photo] : [],
-      `${portraitPrompt(c)}${c.photo ? ` Base the ${el ? c.category === 'place' ? 'place' : 'object' : 'person'} on the reference photo.` : ''}`, count)
+    const ids = await makeOne(CHAR_MODEL, { aspect_ratio: shape, resolution: '1K' }, photos,
+      `${portraitPrompt(c)}${photos.length ? ` Base the ${el ? c.category === 'place' ? 'place' : 'object' : 'person'} on the reference photo${photos.length > 1 ? 's' : ''}.` : ''}`, count)
     set({ options: ids, portraitTask: undefined, sheetTask: undefined })
   })
   const pick = (taskId: string) => act('sheet', async () => {
     const file = fileOf(tasks, taskId)!
-    const [sheetTask] = await makeOne(CHAR_MODEL, { aspect_ratio: '16:9', resolution: '1K' }, [img(file)], sheetPrompt(c))
+    const [sheetTask] = await makeOne(CHAR_MODEL, { aspect_ratio: '16:9', resolution: '1K' }, sheetRefs(file), sheetPrompt(c))
     set({ portraitTask: taskId, sheetTask })
   })
   const redoSheet = () => act('sheet', async () => {
-    const [sheetTask] = await makeOne(CHAR_MODEL, { aspect_ratio: '16:9', resolution: '1K' }, [img(portrait!)], sheetPrompt(c))
+    const [sheetTask] = await makeOne(CHAR_MODEL, { aspect_ratio: '16:9', resolution: '1K' }, sheetRefs(portrait!), sheetPrompt(c))
     set({ sheetTask })
   })
 
@@ -162,10 +168,28 @@ export function CharacterBuilder({ id, tasks, usedIn, onClose }: { id: string; t
                 className="flex aspect-[3/4] w-full items-center justify-center overflow-hidden rounded-xl border border-dashed border-line text-muted hover:border-fg hover:text-fg">
                 {c.photo ? <img src={mediaUrl(c.photo)} alt="Reference photo" className="size-full object-cover" /> : <ImagePlus size={20} />}
               </button>
-              <span className="text-center text-[11px] text-faint">{c.photo ? <button type="button" className="underline" onClick={() => set({ photo: undefined })}>Remove photo</button> : 'Photo (optional)'}</span>
-              <input ref={picker} type="file" accept={ACCEPT_IMAGES} hidden onChange={async (e) => {
-                const [a] = e.target.files ? await toAttachments(e.target.files, ACCEPT_IMAGES) : []
-                if (a) set({ photo: a })
+              {product && c.photo && (
+                <div className="flex flex-wrap justify-center gap-1">
+                  {(c.photos ?? []).map((p, i) => (
+                    <button key={p.file} type="button" title="Remove this photo" onClick={() => setPhotos(photos.filter((x) => x.file !== p.file))}
+                      className="group relative size-8 overflow-hidden rounded-md border border-line">
+                      <img src={mediaUrl(p)} alt={`Photo ${i + 2}`} className="size-full object-cover" />
+                      <span className="absolute inset-0 hidden items-center justify-center bg-black/50 text-white group-hover:flex"><X size={12} /></span>
+                    </button>
+                  ))}
+                  {photos.length < 4 && (
+                    <button type="button" title="Add another photo: the back, the label, the box" onClick={() => picker.current?.click()}
+                      className="flex size-8 items-center justify-center rounded-md border border-dashed border-line text-muted hover:border-fg hover:text-fg"><Plus size={13} /></button>
+                  )}
+                </div>
+              )}
+              <span className="text-center text-[11px] text-faint">
+                {c.photo ? <button type="button" className="underline" onClick={() => (product ? setPhotos(photos.slice(1)) : set({ photo: undefined }))}>Remove photo</button>
+                  : product ? 'Photos (up to 4)' : 'Photo (optional)'}
+              </span>
+              <input ref={picker} type="file" multiple={product} accept={ACCEPT_IMAGES} hidden onChange={async (e) => {
+                const added = e.target.files ? await toAttachments(e.target.files, ACCEPT_IMAGES) : []
+                if (added.length) (product ? setPhotos([...photos, ...added].slice(0, 4)) : set({ photo: added[0] }))
                 e.target.value = ''
               }} />
             </div>
