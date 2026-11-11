@@ -157,8 +157,11 @@ export const castOf = (s: Series, cast: Character[], scene: Scene) => {
   return cast.filter((c) => s.cast.includes(c.id) && aliases(c).some((a) => names.has(a) || named(a, text)))
 }
 // The series' places and things that a scene names (in its place, action or camera).
+// Camera wording ("handheld phone footage", "a 26mm phone lens") is about how a shot is filmed, so it doesn't count as the
+// shot showing a prop called "Phone". ponytail: a fixed phrase list; add to it if another camera word clashes with a prop.
+const CAMERA_WORDS = /\b(?:handheld\s+)?(?:phone|iphone|smartphone)[\s-]+(?:footage|lens|camera|video|style|filmed|shot|close-up|selfie|framing)\b|\bhandheld\s+(?:vertical\s+)?(?:phone|iphone)\b|\b(?:on|with|by)\s+a\s+phone\b/g
 export const elementsOf = (s: Series, all: Character[], scene: Scene) => {
-  const text = `${scene.place} ${scene.action} ${scene.camera}`.toLowerCase()
+  const text = `${scene.place} ${scene.action} ${scene.camera}`.toLowerCase().replace(CAMERA_WORDS, ' ')
   return all.filter((e) => (s.elements ?? []).includes(e.id) && named(e.name.trim().toLowerCase(), text))
 }
 // A character's references: the reference sheet (if made) and the chosen portrait.
