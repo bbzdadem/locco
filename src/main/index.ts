@@ -16,7 +16,7 @@ import { credits, setKey } from './kie'
 import { mimeOf, pathOf, saveUpload } from './media'
 import {
   deleteCharacter, deletedSeries, deleteSeries, listCharacters, listSeries, mediaSeconds, render, restoreSeries, reviseScript, saveCharacter, saveSeries,
-  directScript, improveScene, improveSummary, writeRecap, writeScript, reviewScript, voiceTrack, writeAds, writeSeries } from './series'
+  directScript, improveScene, improveSummary, writeRecap, writeScript, planAds, reviewScript, voiceTrack, writeAds, writeSeries } from './series'
 import { generate, listTasks, removeTask, starTask, startPoller, transcribe } from './tasks'
 
 let win: BrowserWindow | null = null
@@ -182,6 +182,7 @@ app.whenReady().then(async () => {
     writeSeries(idea, episodes, seconds, cast, style, elements))
   ipcMain.handle('ads:write', (_e, product: { description: string; photos: Attachment[]; id?: string }, ads: number, seconds: number, cast: string[], elements: string[]) =>
     writeAds(product, ads, seconds, cast, elements))
+  ipcMain.handle('ads:plan', (_e, s: Series, count: number) => planAds(s, count))
   ipcMain.handle('series:script', (_e, s: Series, index: number) => writeScript(s, index))
   ipcMain.handle('series:direct', (_e, s: Series, index: number, scenes: Scene[]) => directScript(s, index, scenes))
   ipcMain.handle('series:improveScene', (_e, s: Series, index: number, scenes: Scene[], at: number, note: string) => improveScene(s, index, scenes, at, note))

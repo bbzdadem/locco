@@ -221,8 +221,8 @@ function ScriptStep({ s, ep, index, cast, things, run, rk: k, setEp, go }: StepP
         <FileText size={22} className="text-muted" />
         {ad ? (
           <p className="max-w-lg text-muted">
-            Three passes. The writer plans the ad as a beat sheet (hook, problem, the product working, proof, call to action) and writes three
-            alternative hook shots plus the shots every hook leads into. Then the director plans each shot as phone footage: POV hands, macro,
+            Three passes. The writer builds the ad around its moment as a beat sheet and writes three alternative hooks (a striking opening
+            frame with on-screen text) plus the shots every hook leads into. Then the director plans each shot as phone footage: POV hands, macro,
             top-down, reaction close-ups, with on-screen text. Then a reviewer (a different model) checks the hooks, flow, pacing and honesty and lists
             what to fix. You approve it before anything is drawn. Takes two or three minutes.
           </p>

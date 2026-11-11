@@ -374,6 +374,27 @@ function SeriesEditor({ header, s, characters, tasks, runs, onBack, onDeleted, o
   const product = things.find((c) => c.id === s.product)
   const otherElements = characters.filter((c) => c.kind === 'element' && !(s.elements ?? []).includes(c.id) && !(ad && c.category === 'product'))
   const word = ad ? 'ad' : 'episode'
+  // An ad set's next ideas, from the same brainstorm as its first ones (the brief stays; people or places they need are added).
+  const [planning, setPlanning] = useState(false)
+  const [planError, setPlanError] = useState('')
+  async function planMore() {
+    setPlanning(true)
+    setPlanError('')
+    try {
+      const { episodes, created } = await api.planAds(s, 3)
+      await loadAll()
+      await updateSeries(s.id, (x) => {
+        x.episodes.push(...episodes)
+        x.cast.push(...created.filter((c) => !c.kind).map((c) => c.id))
+        x.elements = [...(x.elements ?? []), ...created.filter((c) => c.kind).map((c) => c.id)]
+      })
+      setEpId(episodes[0]?.id)
+    } catch (e) {
+      setPlanError(errMsg(e))
+    } finally {
+      setPlanning(false)
+    }
+  }
   const set = (fn: (x: Series) => void) => void updateSeries(s.id, fn)
   const running = (e: Episode) => !!runs[`${s.id}:${e.id}`]?.step
 
@@ -537,6 +558,13 @@ function SeriesEditor({ header, s, characters, tasks, runs, onBack, onDeleted, o
               className="inline-flex h-8 w-fit items-center gap-1.5 rounded-full px-2.5 text-[13px] text-muted hover:bg-raised hover:text-fg">
               <Plus size={14} /> {ad ? 'Ad' : 'Episode'}
             </button>
+            {ad && (
+              <button type="button" disabled={planning} onClick={planMore} title="Brainstorms the moments people would share for this product and adds the 3 best as new ads"
+                className="inline-flex h-8 w-fit items-center gap-1.5 rounded-full px-2.5 text-[13px] text-muted hover:bg-raised hover:text-fg disabled:opacity-60">
+                {planning ? <LoaderCircle size={14} className="animate-spin" /> : <Megaphone size={14} />} {planning ? 'Planning ads… (a minute or two)' : 'Plan 3 more ads'}
+              </button>
+            )}
+            {planError && <span className="px-2.5 text-xs text-danger">{planError}</span>}
           </div>
 
           <div className="mt-auto flex items-center gap-2 border-t border-line pt-3 text-[13px]">

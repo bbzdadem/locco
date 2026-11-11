@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { Attachment, Character, Chat, ChatEvent, ChatHit, EditProject, GenerateRequest, MediaKind, Message, Project, ProjectRender, Ref, RenderRequest, ReviewIssue, Scene, SendRequest, Series, ShotPlan, Settings, Task, UsageRow } from '../shared/types'
+import type { Attachment, Character, Chat, ChatEvent, ChatHit, EditProject, Episode, GenerateRequest, MediaKind, Message, Project, ProjectRender, Ref, RenderRequest, ReviewIssue, Scene, SendRequest, Series, ShotPlan, Settings, Task, UsageRow } from '../shared/types'
 
 type Voice = { id: string; name: string; about: string; premade?: boolean }
 
@@ -39,6 +39,7 @@ const api = {
     ipcRenderer.invoke('series:write', idea, episodes, seconds, cast, style, elements),
   writeAds: (product: { description: string; photos: Attachment[]; id?: string }, ads: number, seconds: number, cast: string[], elements: string[]): Promise<{ series: Series; created: Character[] }> =>
     ipcRenderer.invoke('ads:write', product, ads, seconds, cast, elements),
+  planAds: (s: Series, count: number): Promise<{ episodes: Episode[]; created: Character[] }> => ipcRenderer.invoke('ads:plan', s, count),
   writeScript: (s: Series, index: number): Promise<{ beats: string; scenes: Scene[]; by: string; format?: string }> => ipcRenderer.invoke('series:script', s, index),
   directScript: (s: Series, index: number, scenes: Scene[]): Promise<{ plans: (ShotPlan | undefined)[]; by: string; failed: number }> => ipcRenderer.invoke('series:direct', s, index, scenes),
   improveScene: (s: Series, index: number, scenes: Scene[], at: number, note = ''): Promise<{ scene: Scene; by: string }> => ipcRenderer.invoke('series:improveScene', s, index, scenes, at, note),

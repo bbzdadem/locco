@@ -109,18 +109,18 @@ const writerOf = (s: Series) => s.writer ?? 'claude-sonnet-5-5'
 // When kie's Claude fails (it has outages), skip it for 10 minutes instead of spending ~20 s of retries on every call.
 let claudeDownUntil = 0
 let claudeWhy = ''
-async function write(s: Series, system: string, user: string, first = writerOf(s)) {
+async function write(s: Series, system: string, user: string, first = writerOf(s), images: Attachment[] = []) {
   const skip = first !== 'gpt-6-sol' && Date.now() < claudeDownUntil
   if (!skip) {
     try {
-      return { text: await complete(first, system, user, undefined, [], true), by: first }
+      return { text: await complete(first, system, user, undefined, images, true), by: first }
     } catch (e) {
       if (first === 'gpt-6-sol') throw e
       claudeDownUntil = Date.now() + 10 * 60_000
       claudeWhy = String((e as Error).message).slice(0, 120)
     }
   }
-  return { text: await complete('gpt-6-sol', system, user, undefined, [], true), by: `gpt-6-sol|${claudeWhy}` }
+  return { text: await complete('gpt-6-sol', system, user, undefined, images, true), by: `gpt-6-sol|${claudeWhy}` }
 }
 
 // Runs jobs a few at a time (kie and the writers handle a handful of parallel calls well).
@@ -213,46 +213,64 @@ export async function writeAds(product: { description: string; photos: Attachmen
   const description = product.description.trim() || saved?.look || ''
   const out = json<any>(await complete(WRITER, [
     'You are the creative strategist for organic TikTok/Reels product videos (the dropshipping style: filmed on a phone by real people, never like a commercial).',
-    `From the product description${photos.length > 1 ? ' and the attached photos (the same product from different sides)' : photos.length ? ' and the attached photo' : ''}, write the product brief and plan the ads. Reply with JSON only:`,
+    `From the product description${photos.length > 1 ? ' and the attached photos (the same product from different sides)' : photos.length ? ' and the attached photo' : ''}, write the product brief. Reply with JSON only:`,
     saved && `The product is already saved as "${saved.name}". Looks: ${saved.look} Use that name in the ads; leave "name" and "look" empty.`,
     '{"name": "the product\'s short name, as shots will mention it (2-3 words)",',
     ' "look": "a precise visual description of the product an image model can repeat: shape, size, colours, materials, finish, parts, logo and label text exactly as printed",',
     ' "logline": "the angle in one sentence: who it is for and what it does for them",',
     ' "brief": "short bullet lines: Buyer (who, their situation); Problem (in their words); The moment it works (what we see on camera); Proof we can show; Objections and answers; Price or offer if given; Never claim (what we must not say)",',
-    ' "style": "the look of every shot: real phone footage, the kind of home, light and colour that suit this product and buyer (1-2 sentences)",',
-    ' "new_characters": [{"name": "...", "look": "precise visual description: age, face, skin, hair, build, clothes", "personality": "...", "voice": "one voice name from the list"}],',
-    ' "new_elements": [{"name": "short name, e.g. The Kitchen", "category": "place or prop", "look": "precise visual description"}],',
-    ' "ads": [{"title": "...", "format": "a format id", "summary": "2-3 sentences: the hook (with its on-screen text), the moment the product works on camera, the payoff and the call to action"}]}',
-    `Plan exactly ${ads} ads of about ${seconds} seconds, each with a different format and hook family. Formats (id: what it is):\n${AD_FORMATS.map((f) => `${f.id}: ${f.beats}`).join('\n')}`,
-    `People already chosen:\n${castText(cast)}`,
-    'Add new_characters (0 to 2) only if the ads need people (someone presenting, reacting, or using it); make them ordinary, believable people the buyer would trust.',
-    `Places and props already chosen:\n${elementText(elements)}`,
-    'Add new_elements (0 to 2) only for places or props that recur across the ads (the kitchen, the car).',
-    `Voices to choose from (name only): ${voiceList()}.`,
+    ' "style": "the look of every shot: real phone footage, the kind of home, light and colour that suit this product and buyer (1-2 sentences)"}',
     ENGLISH,
   ].filter(Boolean).join('\n'), description, undefined, photos))
   const item: Character = saved ?? {
     id: randomUUID(), kind: 'element', category: 'product', name: str(out.name) || 'The product', look: str(out.look), personality: '',
     ...(photos[0] && { photo: photos[0] }), ...(photos.length > 1 && { photos: photos.slice(1, 4) }), createdAt: Date.now(),
   }
+  if (!saved) saveCharacter(item)
+  const series: Series = {
+    id: randomUUID(), kind: 'ad', product: item.id, title: item.name, idea: description, logline: str(out.logline), style: str(out.style),
+    seconds, imageModel: 'gpt-image-2', videoModel: 'kling-3', videoSound: false,
+    cast: cast.map((c) => c.id), elements: [item, ...elements].map((e) => e.id), continuity: str(out.brief), episodes: [], createdAt: Date.now(),
+  }
+  const plan = await planAds(series, ads)
+  series.episodes = plan.episodes
+  series.cast.push(...plan.created.filter((c) => !c.kind).map((c) => c.id))
+  series.elements!.push(...plan.created.filter((c) => c.kind).map((c) => c.id))
+  return { series, created: [...(saved ? [] : [item]), ...plan.created] }
+}
+
+// The ad ideas, from a brainstorm: the moments this product creates that people would stop for, share or tag someone in,
+// each with its opening frame and text hook, scored; the best distinct ones become ads (their format follows the idea).
+// Used for a new product and for "Plan more ads"; people and places the ideas need are added and saved.
+export async function planAds(s: Series, count: number): Promise<{ episodes: Episode[]; created: Character[] }> {
+  const { text } = await write(s, [
+    'You are the creative strategist for organic TikTok/Reels product videos (the dropshipping style: filmed on a phone by real people, never like a commercial). Your job is ideas people share, not product explainers.',
+    'Think like a viewer, not a seller: the entertainment is the moment (funny, surprising, satisfying, relatable, emotional, or something you would send to a friend or tag someone in); the product is the reason it happened or the reveal. Explainers, unboxings and setup tutorials rarely spread: use them only when the moment itself is the hook.',
+    'Hooks are on-screen text over a silent opening frame. The opening frame is the most striking visual of the ad, shown in the first second. The text hook is 3-8 words in a native TikTok voice: POV, "caught", "nobody told me", "my dad…", a confession, a warning, a twist on the picture. It never describes the video ("Setting up…", "Three steps to…").',
+    storySoFar(s, -1),
+    'First brainstorm "moments": 15 distinct shareable moments this product creates or reveals for its buyer (about owning it, using it, gifting it, or what it captures), each with its opening frame, its text hook, and a 1-10 score for stop (would a scroller stop), share (would they send it or tag someone) and comment (would they comment). Score honestly; most ideas are average.',
+    `Then choose "ads": the ${count} best moments by total score, no two alike and none repeating the ads above, each written up as an ad of about ${s.seconds} seconds. Its format is the one that fits the idea (formats may repeat). Formats (id: what it is):\n${AD_FORMATS.map((f) => `${f.id}: ${f.beats}`).join('\n')}`,
+    'Text first: on-screen text carries each ad; only a person talking to the camera speaks. Honesty: respect the brief\'s "Never claim" list; no invented reviews, numbers or prices; anything shown as captured by the product must look believable for it.',
+    'Add new_characters (0 to 2) only if the chosen ads need people the list above lacks (ordinary, believable people the buyer would trust), and new_elements (0 to 2) only for places or props that recur in them.',
+    `Voices to choose from (name only): ${voiceList()}.`,
+    'Reply with JSON only: {"moments": [{"moment": "...", "first_frame": "...", "hook_text": "...", "stop": 7, "share": 6, "comment": 5}], "ads": [{"title": "...", "format": "a format id", "hook_text": "...", "summary": "2-3 sentences: the opening frame and text hook, what happens, how the product appears or is revealed, and the ending (a loop or a soft call to action)"}], "new_characters": [{"name": "...", "look": "precise visual description: age, face, skin, hair, build, clothes", "personality": "...", "voice": "..."}], "new_elements": [{"name": "...", "category": "place or prop", "look": "..."}]}',
+    ENGLISH,
+  ].join('\n\n'), `Plan ${count} ads for ${s.title}.`)
+  const out = json<any>(text)
   const people: Character[] = (out.new_characters ?? []).slice(0, 2).map((c: any) => ({
     id: randomUUID(), name: str(c.name), look: str(c.look), personality: str(c.personality), voice: voiceId(c.voice), createdAt: Date.now(),
   }))
   const places: Character[] = (out.new_elements ?? []).slice(0, 2).map((e: any) => ({
     id: randomUUID(), kind: 'element', name: str(e.name), look: str(e.look), personality: '', category: e.category === 'prop' ? 'prop' : 'place', createdAt: Date.now(),
   }))
-  const created = [...(saved ? [] : [item]), ...people, ...places]
+  const created = [...people, ...places]
   created.forEach(saveCharacter)
-  return {
-    created,
-    series: {
-      id: randomUUID(), kind: 'ad', product: item.id, title: item.name, idea: description, logline: str(out.logline), style: str(out.style),
-      seconds, imageModel: 'gpt-image-2', videoModel: 'kling-3', videoSound: false,
-      cast: [...cast, ...people].map((c) => c.id), elements: [item, ...elements, ...places].map((e) => e.id), continuity: str(out.brief),
-      episodes: (out.ads ?? []).slice(0, ads).map((e: any) => ({ id: randomUUID(), title: str(e.title), summary: str(e.summary), format: formatOf(str(e.format))?.id, step: 'script', scenes: [], music: false })),
-      createdAt: Date.now(),
-    },
-  }
+  const episodes: Episode[] = (out.ads ?? []).slice(0, count).map((e: any) => ({
+    id: randomUUID(), title: str(e.title), step: 'script', scenes: [], music: false, format: formatOf(str(e.format))?.id,
+    summary: [str(e.hook_text) && `Hook text: "${str(e.hook_text)}".`, str(e.summary)].filter(Boolean).join(' '),
+  }))
+  if (!episodes.length) throw new Error('The writer didn’t send back any ads. Try again.')
+  return { episodes, created }
 }
 
 const storySoFar = (s: Series, index: number) => isAd(s) ? adContext(s, index) :
@@ -288,14 +306,14 @@ const DIRECTION = [
 // From the research on organic (dropshipping-style) product videos: what hooks, holds and sells, and what looks real.
 const AD_CRAFT = [
   'This is an organic product video for TikTok, Reels and Shorts (the dropshipping style): it must look filmed on a phone by a real person in a real home, never like a commercial. Vertical 9:16; sound on, but it must work on mute.',
-  'Viewers decide in 1-2 seconds. The HOOK shot (the first 1.5-3 s) is about the product or the problem it solves: start mid-action on the most striking moment, with hook text on screen (3-8 words). Never open with a greeting or a logo.',
+  'Viewers decide in 1-2 seconds. The HOOK shot (the first 1.5-3 s) opens on the most striking visual of the ad, mid-action, with a text hook on screen: 3-8 words in a native TikTok voice that adds a twist to the picture (POV, "caught", "nobody told me", "my dad…", a confession, a warning). It never describes the video ("Setting up…", "Three steps to…"). Never open with a greeting or a logo.',
   'Hook families: call out the person ("If you have a small apartment…"), show the problem ("If your cables look like this…"), curiosity ("I didn\'t know I needed this until…"), price ("$8 vs $40"), a controlled test ("Same spill, one change"), POV or gift ("POV: you found the perfect gift for your dad"), a warning ("Don\'t buy this until you…"), or the most satisfying visual first.',
+  'The entertainment is the moment (funny, surprising, satisfying, relatable, emotional, worth tagging a friend); the product is the reason it happened or the reveal. Keep the ad\'s idea from its brief.',
   'Then: PROBLEM (the viewer\'s real pain, in their words) → DEMO (the product working, close and clear, one benefit per shot) → PROOF (the result, a reaction, a test) → CALL TO ACTION (soft: "link\'s below", "comment LINK", "save this for later"), or end on a frame that flows back into the first so it loops.',
   'Pacing: a new picture every 1.5-3 s; nothing static longer than 4 s; every shot shows something new.',
   'Show, don\'t tell: the product doing its job on camera is the proof. One feature per shot, close enough to see.',
   'Reactions: small, specific and real (eyebrows up, a laugh, a "wait…", leaning in, a dog tilting its head), 1-1.5 s, either as the hook (the face at its peak, then what caused it) or right after the result. No big fake gasps.',
-  'Voice: a casual voiceover (speaker "Narrator") or a person talking to the camera, like a friend: contractions, "okay so", "honestly"; at most one short sentence per shot (3-8 words, about 2.5 words a second); nothing corporate. Satisfying/ASMR ads have no voice.',
-  'On-screen text: 3-8 words where it helps; it carries the story for viewers on mute. The hook shot always has it.',
+  'Text first: on-screen text carries the story (3-8 words a shot where it helps; the hook shot always has it). No voiceover unless the ad\'s brief asks for one; only a person talking to the camera speaks, like a friend: contractions, "okay so", "honestly", one short sentence per shot (about 2.5 words a second), nothing corporate.',
   'Honesty: show only what the product really does (from the brief); no invented reviews, ratings, statistics, prices or health claims; before/after must be realistic and typical.',
 ].join('\n')
 
@@ -350,7 +368,7 @@ async function writeAd(s: Series, index: number) {
     AD_CRAFT,
     storySoFar(s, index),
     f ? `Format: ${f.name}. ${f.beats}` : `Pick the format that fits this ad best (reply with its id): ${AD_FORMATS.map((x) => `${x.id}: ${x.beats}`).join(' ')}`,
-    `The ad runs about ${s.seconds} seconds. Write 3 alternative HOOK shots (1.5-3 s each, each from a different hook family, each with its own on-screen text and, if the ad has a voice, its own opening line), then the body: about ${adShots(s.seconds)} shots that follow on from any of the hooks.`,
+    `The ad runs about ${s.seconds} seconds. Write 3 alternative HOOK shots (1.5-3 s each, each a striking opening frame with its own text hook from a different hook family; a hook speaks only if a person talks to the camera), then the body: about ${adShots(s.seconds)} shots that follow on from any of the hooks.`,
     `Name the product exactly as "${product?.name ?? s.title}" in every shot it is in; name people, places and props exactly. A shot without a line gets "seconds" (1.5-3); a shot with a line runs as long as the line.`,
     'If the ad brief already has lines, beats or timings, keep them; build on them.',
     `Reply with JSON only:\n${AD_SCRIPT_JSON}`,
@@ -417,7 +435,8 @@ export async function improveScene(s: Series, index: number, scenes: Scene[], at
 // problem tied to its shots with a concrete fix. A different model from the writer, so no one grades their own work.
 const reviewerOf = (writer: string) => (writer === 'gpt-6-sol' ? 'claude-sonnet-5-5' : 'gpt-6-sol')
 const AD_REVIEW = [
-  'Hooks: each hook works as the first shot on its own, is about the product or its problem within 2 s, has on-screen text, and the three use different hook families.',
+  'Hooks: each opens on a striking visual with a 3-8 word text hook that adds a twist (never describes the video), works as the first shot on its own, and the three use different hook families.',
+  'Shareability: would a scroller stop, rewatch, comment or tag someone? An ad that is only a product explainer fails this; say what moment would make it worth sharing.',
   'Flow: problem → the product working → proof (a result, a reaction or a test) → a soft call to action or a loop; nothing missing, nothing out of order; every shot shows something new.',
   'Product: it appears and is named exactly where it matters, and is shown working on camera, not just described or held up.',
   'Pacing: no shot over 4 s; each version (one hook and the shots after it) within about 20% of the target length; every line short enough to say in its shot (about 2.5 words a second).',
