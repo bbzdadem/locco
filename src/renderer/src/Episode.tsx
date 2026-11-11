@@ -11,7 +11,7 @@ import { Media, Zoomable } from './Create'
 import { buildEpisodeProject, episodeProject, toProjectRender } from './Studio'
 import { api, errMsg, mediaUrl } from './lib'
 import {
-  allTasks, castOf, clipFor, clipOf, defaultEdit, editPrompt, elementsOf, fileOf, getSeries, img, IMAGE_MODELS, makeAll, makeOne, model, motionPrompt, needs, ready, refsOf, type Run, scenePrompt,
+  allTasks, castOf, clipFor, clipOf, defaultEdit, loadAll, editPrompt, elementsOf, fileOf, getSeries, img, IMAGE_MODELS, makeAll, makeOne, model, motionPrompt, needs, ready, refsOf, type Run, scenePrompt,
   sceneRefs, setRun, speaking, stateOf, step, syncKeyOf, syncState, type Tasks, timing, toRender, updateSeries, VIDEO_MODELS, videoValues, voiceFor, voiceName,
 } from './seriesStore'
 import { IconButton, SelectChip } from './ui'
@@ -143,6 +143,14 @@ function ScriptStep({ s, ep, index, cast, things, run, rk: k, setEp, go }: StepP
 
   const write = () => step(k, `Writers' room: beat sheet and shots (${writerLabel(writer)})…`, async () => {
     const draft = await api.writeScript(getSeries(s.id), index)
+    // People, places and props the writer added because this ad needs them join the set (and the library).
+    if (draft.created?.length) {
+      await loadAll()
+      await updateSeries(s.id, (x) => {
+        x.cast.push(...draft.created!.filter((c) => !c.kind).map((c) => c.id))
+        x.elements = [...(x.elements ?? []), ...draft.created!.filter((c) => c.kind).map((c) => c.id)]
+      })
+    }
     await setEp((e) => void ((e.scenes = draft.scenes), (e.beats = draft.beats), (e.format ??= draft.format)))
     setRun(k, { step: `Director: planning ${draft.scenes.length} shots…` })
     const directed = await api.directScript(getSeries(s.id), index, draft.scenes)
@@ -150,7 +158,8 @@ function ScriptStep({ s, ep, index, cast, things, run, rk: k, setEp, go }: StepP
     const wrote = draft.by.split('|')[0]
     setRun(k, { step: reviewing(wrote) })
     const unreviewed = await runReview(wrote).then(() => undefined, (e) => `The reviewer didn't answer (${errMsg(e)}); press Review to try again.`)
-    return notes(missed(directed.failed), fellBack(directed.by) ?? fellBack(draft.by), unreviewed)
+    const added = draft.created?.length ? `Added to this set: ${draft.created.map((c) => c.name).join(', ')} (make their ${draft.created.length > 1 ? 'images' : 'image'} before drawing).` : undefined
+    return notes(added, missed(directed.failed), fellBack(directed.by) ?? fellBack(draft.by), unreviewed)
   })
   // Plans for the shots that have none (written before the director pass, added later, or missed). The story stays as it is.
   const addPlans = () => step(k, `Director: planning ${unplanned} shot${unplanned > 1 ? 's' : ''}…`, async () => {

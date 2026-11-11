@@ -149,10 +149,12 @@ export async function step(key: string, label: string, work: () => Promise<void 
 const named = (n: string, text: string) =>
   !!n && new RegExp(`(^|[^\\p{L}\\p{N}])@?${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\p{L}\\p{N}])`, 'u').test(text)
 // Who is in a scene: the writer's pick, anyone speaking, and anyone named in the scene text (with or without @).
+// A name and its short form: "Jeny - gift giver" is also "Jeny".
+const aliases = (c: Character) => [...new Set([c.name, c.name.split(/\s+[-–—(,]/)[0]].map((n) => n.trim().toLowerCase()).filter(Boolean))]
 export const castOf = (s: Series, cast: Character[], scene: Scene) => {
   const names = new Set([...scene.cast, ...scene.lines.map((l) => l.speaker)].map((n) => n.trim().toLowerCase()))
   const text = `${scene.action} ${scene.place}`.toLowerCase()
-  return cast.filter((c) => s.cast.includes(c.id) && (names.has(c.name.trim().toLowerCase()) || named(c.name.trim().toLowerCase(), text)))
+  return cast.filter((c) => s.cast.includes(c.id) && aliases(c).some((a) => names.has(a) || named(a, text)))
 }
 // The series' places and things that a scene names (in its place, action or camera).
 export const elementsOf = (s: Series, all: Character[], scene: Scene) => {

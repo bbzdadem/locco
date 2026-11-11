@@ -251,20 +251,13 @@ export async function planAds(s: Series, count: number): Promise<{ episodes: Epi
     'First brainstorm "moments": 15 distinct shareable moments this product creates or reveals for its buyer (about owning it, using it, gifting it, or what it captures), each with its opening frame, its text hook, and a 1-10 score for stop (would a scroller stop), share (would they send it or tag someone) and comment (would they comment). Score honestly; most ideas are average.',
     `Then choose "ads": the ${count} best moments by total score, no two alike and none repeating the ads above, each written up as an ad of about ${s.seconds} seconds. Its format is the one that fits the idea (formats may repeat). Formats (id: what it is):\n${AD_FORMATS.map((f) => `${f.id}: ${f.beats}`).join('\n')}`,
     'Text first: on-screen text carries each ad; only a person talking to the camera speaks. Honesty: respect the brief\'s "Never claim" list; no invented reviews, numbers or prices; anything shown as captured by the product must look believable for it.',
-    'Add new_characters (0 to 2) only if the chosen ads need people the list above lacks (ordinary, believable people the buyer would trust), and new_elements (0 to 2) only for places or props that recur in them.',
+    'Cast every chosen ad: list in "people" everyone it shows (on screen, or seen in a message or photo) and in "places" every place or recurring prop, by name. Each name must be in the lists above or in new_characters / new_elements; never "a man", "the woman" or "her dad" without a name and a description. Name people in the summary too. Add new_characters (0 to 3: ordinary, believable people the buyer would trust, with ages and relations that fit the hooks, e.g. the daughter who bought it for her dad) and new_elements (0 to 3: places or props shown in more than one shot).',
     `Voices to choose from (name only): ${voiceList()}.`,
-    'Reply with JSON only: {"moments": [{"moment": "...", "first_frame": "...", "hook_text": "...", "stop": 7, "share": 6, "comment": 5}], "ads": [{"title": "...", "format": "a format id", "hook_text": "...", "summary": "2-3 sentences: the opening frame and text hook, what happens, how the product appears or is revealed, and the ending (a loop or a soft call to action)"}], "new_characters": [{"name": "...", "look": "precise visual description: age, face, skin, hair, build, clothes", "personality": "...", "voice": "..."}], "new_elements": [{"name": "...", "category": "place or prop", "look": "..."}]}',
+    'Reply with JSON only: {"moments": [{"moment": "...", "first_frame": "...", "hook_text": "...", "stop": 7, "share": 6, "comment": 5}], "ads": [{"title": "...", "format": "a format id", "hook_text": "...", "summary": "2-3 sentences: the opening frame and text hook, what happens, how the product appears or is revealed, and the ending (a loop or a soft call to action)", "people": ["names"], "places": ["names"]}], "new_characters": [{"name": "...", "look": "precise visual description: age, face, skin, hair, build, clothes", "personality": "...", "voice": "..."}], "new_elements": [{"name": "...", "category": "place or prop", "look": "..."}]}',
     ENGLISH,
   ].join('\n\n'), `Plan ${count} ads for ${s.title}.`)
   const out = json<any>(text)
-  const people: Character[] = (out.new_characters ?? []).slice(0, 2).map((c: any) => ({
-    id: randomUUID(), name: str(c.name), look: str(c.look), personality: str(c.personality), voice: voiceId(c.voice), createdAt: Date.now(),
-  }))
-  const places: Character[] = (out.new_elements ?? []).slice(0, 2).map((e: any) => ({
-    id: randomUUID(), kind: 'element', name: str(e.name), look: str(e.look), personality: '', category: e.category === 'prop' ? 'prop' : 'place', createdAt: Date.now(),
-  }))
-  const created = [...people, ...places]
-  created.forEach(saveCharacter)
+  const created = newCast(out, 3)
   const episodes: Episode[] = (out.ads ?? []).slice(0, count).map((e: any) => ({
     id: randomUUID(), title: str(e.title), step: 'script', scenes: [], music: false, format: formatOf(str(e.format))?.id,
     summary: [str(e.hook_text) && `Hook text: "${str(e.hook_text)}".`, str(e.summary)].filter(Boolean).join(' '),
@@ -332,7 +325,20 @@ const craft = (s: Series) => (isAd(s) ? AD_CRAFT : CRAFT)
 const direction = (s: Series) => (isAd(s) ? AD_DIRECTION : DIRECTION)
 const role = (s: Series) => (isAd(s) ? 'organic product videos (ads)' : 'a vertical short series')
 const AD_SHOT = '{"place": "where and when", "action": "what happens in this shot, naming the product and people exactly", "cast": ["people on screen"], "lines": [{"speaker": "Narrator or a name", "text": "the line"}], "text": "on-screen text, 3-8 words, or empty", "seconds": 2}'
-const AD_SCRIPT_JSON = `{"beats": "the beat sheet: numbered beats with their seconds", "format": "the format id", "hooks": [${AD_SHOT}], "scenes": [${AD_SHOT}]}`
+const NEW_CAST_JSON = '"new_characters": [{"name": "...", "look": "precise visual description: age, face, skin, hair, build, clothes", "personality": "...", "voice": "a voice name"}], "new_elements": [{"name": "...", "category": "place or prop", "look": "precise visual description"}]'
+const AD_SCRIPT_JSON = `{"beats": "the beat sheet: numbered beats with their seconds", "format": "the format id", "hooks": [${AD_SHOT}], "scenes": [${AD_SHOT}], ${NEW_CAST_JSON}}`
+// People, places and props a writer added because its ads need them: saved to the library (the caller adds them to the set).
+function newCast(out: { new_characters?: any[]; new_elements?: any[] }, max: number): Character[] {
+  const people: Character[] = (out.new_characters ?? []).slice(0, max).filter((c: any) => str(c.name)).map((c: any) => ({
+    id: randomUUID(), name: str(c.name), look: str(c.look), personality: str(c.personality), voice: voiceId(c.voice), createdAt: Date.now(),
+  }))
+  const places: Character[] = (out.new_elements ?? []).slice(0, max).filter((e: any) => str(e.name)).map((e: any) => ({
+    id: randomUUID(), kind: 'element', name: str(e.name), look: str(e.look), personality: '', category: e.category === 'prop' ? 'prop' : 'place', createdAt: Date.now(),
+  }))
+  const created = [...people, ...places]
+  created.forEach(saveCharacter)
+  return created
+}
 
 const SCRIPT_JSON = '{"beats": "the beat sheet: numbered beats with their seconds", "scenes": [{"place": "where and when", "action": "what happens in this shot, by name", "cast": ["characters on screen"], "lines": [{"speaker": "name or Narrator", "text": "the line"}]}]}'
 // Ads also carry each shot's hook letter and silent length; series shots don't.
@@ -340,7 +346,7 @@ const directedJson = (s: Series) => (isAd(s) ? DIRECTED_JSON : DIRECTED_JSON.rep
 const DIRECTED_JSON = '{"scenes": [{"hook": "", "seconds": 0, "place": "...", "action": "...", "cast": ["..."], "lines": [{"speaker": "...", "text": "..."}], "plan": {"shot": "...", "beats": "...", "performance": "...", "move": "...", "environment": "...", "sound": "...", "text": "", "transition": "..."}}]}'
 
 // Pass 1, the writers' room: a beat sheet built for social, then the script as short shots.
-export async function writeScript(s: Series, index: number): Promise<{ beats: string; scenes: Scene[]; by: string; format?: string }> {
+export async function writeScript(s: Series, index: number): Promise<{ beats: string; scenes: Scene[]; by: string; format?: string; created?: Character[] }> {
   const ep = s.episodes[index]
   if (isAd(s)) return writeAd(s, index)
   const n = sceneTarget(s.seconds)
@@ -370,13 +376,14 @@ async function writeAd(s: Series, index: number) {
     f ? `Format: ${f.name}. ${f.beats}` : `Pick the format that fits this ad best (reply with its id): ${AD_FORMATS.map((x) => `${x.id}: ${x.beats}`).join(' ')}`,
     `The ad runs about ${s.seconds} seconds. Write 3 alternative HOOK shots (1.5-3 s each, each a striking opening frame with its own text hook from a different hook family; a hook speaks only if a person talks to the camera), then the body: about ${adShots(s.seconds)} shots that follow on from any of the hooks.`,
     `Name the product exactly as "${product?.name ?? s.title}" in every shot it is in; name people, places and props exactly. A shot without a line gets "seconds" (1.5-3); a shot with a line runs as long as the line.`,
+    `Every person on screen is someone from the people list, named exactly, and listed in the shot's "cast"; never "a man" or "her friend". If the ad needs a person, place or recurring prop the lists lack, add them (at most 2 each) to new_characters / new_elements and use those names. Voices to choose from (name only): ${voiceList()}.`,
     'If the ad brief already has lines, beats or timings, keep them; build on them.',
     `Reply with JSON only:\n${AD_SCRIPT_JSON}`,
     ENGLISH,
   ].join('\n\n'), `Ad ${index + 1}: ${ep.title}\n${ep.summary}`)
   const out = json<{ beats?: string; format?: string; hooks?: any[]; scenes?: any[] }>(text)
   const hooks = (out.hooks ?? []).slice(0, 3).map((h, i) => ({ ...h, hook: HOOKS[i] }))
-  return { beats: str(out.beats), scenes: scenesFrom({ scenes: [...hooks, ...(out.scenes ?? [])] }), by, format: formatOf(str(out.format))?.id }
+  return { beats: str(out.beats), scenes: scenesFrom({ scenes: [...hooks, ...(out.scenes ?? [])] }), by, format: formatOf(str(out.format))?.id, created: newCast(out as any, 2) }
 }
 
 const plain = (scenes: Scene[]) => scenes.map(({ place, action, cast, lines, plan, hook, seconds }) =>
@@ -442,6 +449,7 @@ const AD_REVIEW = [
   'Pacing: no shot over 4 s; each version (one hook and the shots after it) within about 20% of the target length; every line short enough to say in its shot (about 2.5 words a second).',
   'Honesty: nothing breaks the brief\'s "Never claim" list; no invented reviews, ratings, statistics, prices or health claims; a before/after is realistic.',
   'Continuity and variety: place, props, light and what the hands hold carry over between shots; framing varies (never three similar shots in a row); on-screen text is short (3-8 words).',
+  'Cast: everyone on screen is a named person from the people list (in the shot\'s cast), and every place or prop that recurs is a named one; flag "a man", "her friend" or a place that changes from shot to shot.',
 ]
 const SERIES_REVIEW = [
   'Hook: the first shot grabs within 2 s with a striking image or a question.',

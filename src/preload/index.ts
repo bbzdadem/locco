@@ -40,7 +40,7 @@ const api = {
   writeAds: (product: { description: string; photos: Attachment[]; id?: string }, ads: number, seconds: number, cast: string[], elements: string[]): Promise<{ series: Series; created: Character[] }> =>
     ipcRenderer.invoke('ads:write', product, ads, seconds, cast, elements),
   planAds: (s: Series, count: number): Promise<{ episodes: Episode[]; created: Character[] }> => ipcRenderer.invoke('ads:plan', s, count),
-  writeScript: (s: Series, index: number): Promise<{ beats: string; scenes: Scene[]; by: string; format?: string }> => ipcRenderer.invoke('series:script', s, index),
+  writeScript: (s: Series, index: number): Promise<{ beats: string; scenes: Scene[]; by: string; format?: string; created?: Character[] }> => ipcRenderer.invoke('series:script', s, index),
   directScript: (s: Series, index: number, scenes: Scene[]): Promise<{ plans: (ShotPlan | undefined)[]; by: string; failed: number }> => ipcRenderer.invoke('series:direct', s, index, scenes),
   improveScene: (s: Series, index: number, scenes: Scene[], at: number, note = ''): Promise<{ scene: Scene; by: string }> => ipcRenderer.invoke('series:improveScene', s, index, scenes, at, note),
   reviewScript: (s: Series, index: number, scenes: Scene[], writtenBy?: string): Promise<{ verdict: 'ready' | 'fix'; summary: string; issues: ReviewIssue[]; by: string }> =>
