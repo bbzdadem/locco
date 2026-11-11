@@ -1,7 +1,8 @@
 import type { EditClip, Scene } from './types'
 
 // When each line starts inside its scene, and how long the scene runs: short pauses around the dialogue, never under 2.5 s.
-// A shot without dialogue runs its own seconds (ads cut fast), 3 s if it has none.
+// A shot runs its own seconds when it has them (an ad's shot fills its clip), at least as long as its dialogue; a shot
+// without either runs 3 s.
 export function timing(scene: Pick<Scene, 'lines' | 'seconds'>) {
   let at = 0.3
   const voices = scene.lines.map((l) => {
@@ -9,7 +10,7 @@ export function timing(scene: Pick<Scene, 'lines' | 'seconds'>) {
     at += (l.seconds ?? 2.5) + 0.35
     return start
   })
-  return { voices, seconds: scene.lines.length ? Math.max(2.5, at + 0.3) : (scene.seconds ?? 3) }
+  return { voices, seconds: scene.lines.length ? Math.max(2.5, at + 0.3, scene.seconds ?? 0) : (scene.seconds ?? 3) }
 }
 
 // Shots of about 3 seconds (social pacing), at least 5, at most 15.

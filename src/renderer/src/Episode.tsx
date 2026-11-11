@@ -1,6 +1,6 @@
 import { ArrowRight, Check, ListChecks, Mic, Coins, Smile, ChevronLeft, ChevronRight, Clapperboard, Download, FileText, Film, ImagePlus, LoaderCircle, Plus, RotateCcw, Square, TriangleAlert, Wand2, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { AD_FORMATS, adShots, adVersions, playing } from '../../shared/ads'
+import { AD_FORMATS, adShots, adVersions, clipSeconds, playing } from '../../shared/ads'
 import { buildInput } from '../../shared/inputs'
 import { chatModel, ELEVEN_VOICES, withBest } from '../../shared/models'
 import { estimate, priceLabel, USD_PER_CREDIT } from '../../shared/prices'
@@ -130,8 +130,10 @@ function ScriptStep({ s, ep, index, cast, things, run, rk: k, setEp, go }: StepP
   const reviewing = (by = writer) => `Reviewer: checking the whole ${ad ? 'ad' : 'episode'} (${writerLabel(reviewerOf(by))})…`
 
   // Pass 3: the reviewer reads the latest script; its shot labels are saved as scene ids so they survive edits.
+  // Left-out shots aren't part of the ad, so the reviewer, Improve and Revise only see the shots in it.
+  const inAd = () => latest().scenes.filter((sc) => !sc.skip)
   async function runReview(writtenBy?: string) {
-    const scenes = latest().scenes
+    const scenes = inAd()
     const out = await api.reviewScript(getSeries(s.id), index, scenes, writtenBy)
     const ids = new Map(scenes.map((sc) => [tagOf(scenes, sc), sc.id]))
     await setEp((e) => void (e.review = {
@@ -168,7 +170,7 @@ function ScriptStep({ s, ep, index, cast, things, run, rk: k, setEp, go }: StepP
     return notes(missed(out.failed), fellBack(out.by))
   })
   const improveOne = async (sc: Scene, note: string) => {
-    const scenes = latest().scenes
+    const scenes = inAd()
     const out = await api.improveScene(getSeries(s.id), index, scenes, scenes.findIndex((x) => x.id === sc.id), note)
     const media = !!(sc.frameTask || sc.videoTask || sc.lines.some((l) => l.voiceTask))
     // A shot that already has pictures or voices keeps its story; only the plan changes.
@@ -187,12 +189,13 @@ function ScriptStep({ s, ep, index, cast, things, run, rk: k, setEp, go }: StepP
     const left = whole.filter((it) => hasImages && !shotsOf(it).length)
     for (const it of list.filter((x) => !whole.includes(x))) await improveOne(shotsOf(it)[0], noteOf(it)) // single shots first: a revision renews the ids
     if (whole.length && !hasImages) {
-      const scenes = await api.reviseScript(getSeries(s.id), index, latest().scenes, `Apply the reviewer's notes:\n${whole.map((it, n) => `${n + 1}. ${noteOf(it)}`).join('\n')}`)
-      await setEp((e) => void (e.scenes = scenes))
+      const scenes = await api.reviseScript(getSeries(s.id), index, inAd(), `Apply the reviewer's notes:\n${whole.map((it, n) => `${n + 1}. ${noteOf(it)}`).join('\n')}`)
+      await setEp((e) => void (e.scenes = [...scenes, ...e.scenes.filter((x) => x.skip)]))
     } else for (const it of whole) for (const sc of shotsOf(it)) await improveOne(sc, noteOf(it))
-    if (latest().scenes.some((sc) => !sc.plan?.shot)) {
-      const d = await api.directScript(getSeries(s.id), index, latest().scenes)
-      await setEp((e) => e.scenes.forEach((sc, i) => (sc.plan = d.plans[i] ?? sc.plan)))
+    if (inAd().some((sc) => !sc.plan?.shot)) {
+      const shots = inAd()
+      const d = await api.directScript(getSeries(s.id), index, shots)
+      await setEp((e) => shots.forEach((sc, i) => { const x = e.scenes.find((y) => y.id === sc.id); if (x && d.plans[i]) x.plan = d.plans[i] }))
     }
     const done = list.filter((it) => !left.includes(it))
     await setEp((e) => e.review?.issues.forEach((x) => done.some((it) => it.problem === x.problem && it.fix === x.fix) && (x.done = true)))
@@ -206,10 +209,10 @@ function ScriptStep({ s, ep, index, cast, things, run, rk: k, setEp, go }: StepP
     await runReview()
     return note
   })
-  const stale = !!ep.review && ep.review.key !== scriptKey(ep.scenes)
+  const stale = !!ep.review && ep.review.key !== scriptKey(ep.scenes.filter((sc) => !sc.skip))
   const revise = () => step(k, 'Revising the script…', async () => {
-    const scenes = await api.reviseScript(getSeries(s.id), index, ep.scenes, change)
-    await setEp((e) => void (e.scenes = scenes))
+    const scenes = await api.reviseScript(getSeries(s.id), index, inAd(), change)
+    await setEp((e) => void (e.scenes = [...scenes, ...e.scenes.filter((x) => x.skip)]))
     setChange('')
   })
   const writerChip = (
@@ -415,7 +418,7 @@ function ScenesStep({ s, ep, tasks, cast, things, run, rk: k, setEp, go, selecte
   // Characters first, then the places and things the scene names: each brings its reference images.
   const people = (sc: Scene) => [...castOf(s, cast, sc), ...elementsOf(s, things, sc)]
   const unready = [...new Set(ep.scenes.flatMap(people))].filter((c) => !ready(tasks, c))
-  const missing = ep.scenes.filter((sc) => needs(tasks, sc.frameTask))
+  const missing = ep.scenes.filter((sc) => !sc.skip && needs(tasks, sc.frameTask))
   const im = model(s.imageModel)
   const each = estimate(im.id, buildInput(im, SCENE_IMAGE, {}).input)?.hi ?? 0
   const refs = (sc: Scene) => sceneRefs(s, people(sc), tasks)
@@ -424,13 +427,21 @@ function ScenesStep({ s, ep, tasks, cast, things, run, rk: k, setEp, go, selecte
   const drawAll = () => step(k, 'Drawing scenes…', () => makeAll(k, `Drawing ${missing.length} scenes…`, 'scene images', missing, draw,
     (pairs) => setEp((e) => pairs.forEach(([sc, id]) => Object.assign(e.scenes.find((x) => x.id === sc.id)!, { frameTask: id, approved: false })))))
   const sc = ep.scenes.find((x) => x.id === selected) ?? ep.scenes[0]
-  const ok = (x: Scene) => !!x.approved && !!fileOf(tasks, x.frameTask)
-  const approved = ep.scenes.filter(ok).length
-  const allDone = approved === ep.scenes.length
-  // An ad goes on with every shot approved and at least one hook; the hooks left unapproved are dropped.
-  const hooks = ep.scenes.filter((x) => x.hook)
-  const canGo = ep.scenes.filter((x) => !x.hook).every(ok) && (!hooks.length || hooks.some(ok))
+  const ok = (x: Scene) => !x.skip && !!x.approved && !!fileOf(tasks, x.frameTask)
+  const kept = ep.scenes.filter((x) => !x.skip)
+  const approved = kept.filter(ok).length
+  const allDone = approved === kept.length
+  // Go on with every kept shot approved and, in an ad, at least one hook; the hooks left unapproved are dropped.
+  // "Continue with N shots" leaves the unapproved shots out first (they can be brought back here).
+  const hooks = kept.filter((x) => x.hook)
+  const body = kept.filter((x) => !x.hook)
+  const canGo = body.every(ok) && body.length > 0 && (!hooks.length || hooks.some(ok))
+  const canTrim = !canGo && body.some(ok) && (!hooks.length || hooks.some(ok))
   const dropped = hooks.some(ok) ? hooks.filter((x) => !ok(x)) : []
+  const trim = () => setEp((e) => e.scenes.forEach((x) => !x.hook && !x.skip && !(x.approved && fileOf(tasks, x.frameTask)) && (x.skip = true))).then(() => go('voices'))
+  // Leaving out the last shot loses the ending (often the call to action): say which shot the video now ends on.
+  const lastBody = ep.scenes.filter((x) => !x.hook).at(-1)
+  const endsOn = lastBody?.skip ? body.at(-1) : undefined
 
   return (
     <>
@@ -452,7 +463,7 @@ function ScenesStep({ s, ep, tasks, cast, things, run, rk: k, setEp, go, selecte
             <ImagePlus size={15} /> Draw {missing.length} scene{missing.length > 1 ? 's' : ''} <span className="font-normal opacity-70">{priceOf(each * missing.length)}</span>
           </button>
         )}
-        <span className="ml-auto text-[13px] text-muted tabular-nums">{approved} of {ep.scenes.length} approved</span>
+        <span className="ml-auto text-[13px] text-muted tabular-nums">{approved} of {kept.length} approved{kept.length < ep.scenes.length && ` · ${ep.scenes.length - kept.length} left out`}</span>
       </div>
       <div className="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-2">
         {ep.scenes.map((x, i) => {
@@ -460,30 +471,39 @@ function ScenesStep({ s, ep, tasks, cast, things, run, rk: k, setEp, go, selecte
           const st = stateOf(tasks, x.frameTask)
           return (
             <button key={x.id} type="button" onClick={() => setSelected(x.id)}
-              className={`relative aspect-[9/16] overflow-hidden rounded-xl bg-raised ${x.id === sc?.id ? 'ring-2 ring-fg' : ''}`}>
+              className={`relative aspect-[9/16] overflow-hidden rounded-xl bg-raised ${x.id === sc?.id ? 'ring-2 ring-fg' : ''} ${x.skip ? 'opacity-40' : ''}`}>
               {f && <img src={mediaUrl({ kind: 'media', file: f })} alt={nameOf(ep.scenes, x)} className="size-full object-cover" />}
               {st === 'busy' && <span className="absolute inset-0 flex items-center justify-center bg-black/30 text-white"><LoaderCircle size={16} className="animate-spin" /></span>}
               {st === 'fail' && <span className="absolute inset-0 flex items-center justify-center p-2 text-[11px] text-danger">Failed</span>}
               <span className="absolute top-1 left-1 rounded bg-black/60 px-1.5 text-[11px] leading-5 text-white tabular-nums">{tagOf(ep.scenes, x)}</span>
-              {x.approved && f && <span className="absolute top-1 right-1 flex size-5 items-center justify-center rounded-full bg-inverse text-on-inverse"><Check size={12} /></span>}
+              {x.approved && f && !x.skip && <span className="absolute top-1 right-1 flex size-5 items-center justify-center rounded-full bg-inverse text-on-inverse"><Check size={12} /></span>}
+              {x.skip && <span className="absolute inset-x-0 bottom-0 bg-black/70 py-0.5 text-center text-[11px] text-white">Left out</span>}
             </button>
           )
         })}
       </div>
       {sc && <SceneDetail s={s} sc={sc} name={nameOf(ep.scenes, sc)} tasks={tasks} run={run} refs={refs(sc)} people={people(sc)} k={k} setScene={setScene} draw={draw} />}
       <div className="flex items-center justify-end gap-2">
-        {!allDone && ep.scenes.every((x) => fileOf(tasks, x.frameTask)) && (
-          <button type="button" className={secondary} onClick={() => setEp((e) => e.scenes.forEach((x) => (x.approved = true)))}><Check size={13} /> Approve all</button>
+        {endsOn && <span className="mr-auto text-[13px] text-muted">The last shot is left out, so the video now ends on {nameOf(ep.scenes, endsOn).toLowerCase()}{endsOn.plan?.text ? ` (“${endsOn.plan.text}”)` : ''}.</span>}
+        {!allDone && kept.every((x) => fileOf(tasks, x.frameTask)) && (
+          <button type="button" className={secondary} onClick={() => setEp((e) => e.scenes.forEach((x) => !x.skip && (x.approved = true)))}><Check size={13} /> Approve all</button>
         )}
         {canGo && dropped.length > 0 && (
           <span className="mr-auto text-[13px] text-muted">
             Hook{dropped.length > 1 ? 's' : ''} {dropped.map((x) => x.hook).join(' and ')} {dropped.length > 1 ? 'aren\'t' : 'isn\'t'} approved, so {dropped.length > 1 ? 'they\'re' : 'it\'s'} left out: no voice, video or version for {dropped.length > 1 ? 'them' : 'it'}.
           </span>
         )}
-        <button type="button" disabled={!canGo || busy(run)} onClick={() => go('voices')} className={primary}
-          title={canGo ? undefined : hooks.length ? 'Approve every shot and at least one hook first' : 'Approve every scene first'}>
-          Continue to voices <ArrowRight size={15} />
-        </button>
+        {canTrim ? (
+          <button type="button" disabled={busy(run)} onClick={trim} className={primary}
+            title="Leaves the shots you haven't approved out of the video (you can bring them back here), then goes on to voices">
+            Continue with {approved} shot{approved > 1 ? 's' : ''} <ArrowRight size={15} />
+          </button>
+        ) : (
+          <button type="button" disabled={!canGo || busy(run)} onClick={() => go('voices')} className={primary}
+            title={canGo ? undefined : hooks.length ? 'Approve at least one hook and one shot first' : 'Approve every scene first'}>
+            Continue to voices <ArrowRight size={15} />
+          </button>
+        )}
       </div>
     </>
   )
@@ -545,7 +565,11 @@ function SceneDetail({ s, sc, name, tasks, run, refs, people, k, setScene, draw 
           )}
           <div className="flex items-center gap-2">
             <button type="button" disabled={busy(run)} onClick={redraw} className={secondary}><RotateCcw size={13} /> {current ? 'Draw again' : 'Draw'}</button>
-            {current && at === all.length - 1 && (
+            <button type="button" onClick={() => setScene(sc.id, (x) => void ((x.skip = !x.skip), (x.approved = false)))} className={secondary}
+              title={sc.skip ? 'Put this shot back in the video' : 'Keep this shot out of the video; its pictures stay, and you can bring it back'}>
+              {sc.skip ? <><Plus size={13} /> Bring back</> : <><X size={13} /> Leave out</>}
+            </button>
+            {current && at === all.length - 1 && !sc.skip && (
               <button type="button" onClick={() => setScene(sc.id, (x) => void (x.approved = !x.approved))}
                 className={`ml-auto inline-flex h-9 items-center gap-1.5 rounded-full px-4 font-medium ${sc.approved ? 'border border-line text-fg' : 'bg-inverse text-on-inverse'}`}>
                 <Check size={14} /> {sc.approved ? 'Approved' : 'Approve'}
@@ -652,7 +676,7 @@ function VoicesStep({ s, ep, tasks, cast, run, rk: k, setEp, go }: StepProps) {
 function costOf(s: Series, ep: Episode, t: Tasks) {
   const im = model(s.imageModel)
   const vm = model(s.videoModel)
-  const n = ep.scenes.length || (s.kind === 'ad' ? adShots(s.seconds) + 3 : sceneTarget(s.seconds))
+  const n = ep.scenes.length || (s.kind === 'ad' ? adShots(s.seconds, clipSeconds(s.videoModel)) + 3 : sceneTarget(s.seconds))
   const shots = ep.scenes.length ? playing(ep).map((sc) => ({ sc, seconds: timing(sc).seconds })) : Array.from({ length: n }, () => ({ sc: undefined, seconds: s.seconds / n }))
   const image = estimate(im.id, buildInput(im, SCENE_IMAGE, {}).input)?.hi ?? 0
   const video = (sec: number) => estimate(vm.id, buildInput(vm, videoValues(vm, sec, !!s.videoSound), {}).input)?.hi ?? 0

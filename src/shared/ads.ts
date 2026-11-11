@@ -1,5 +1,6 @@
 // Product ads: organic TikTok/Reels product videos (the dropshipping style). The formats, and how an ad's hook
 // variants become its versions.
+import { MEDIA_MODELS } from './models'
 import type { Episode, Scene } from './types'
 
 export const AD_FORMATS: { id: string; name: string; beats: string }[] = [
@@ -17,13 +18,22 @@ export const AD_FORMATS: { id: string; name: string; beats: string }[] = [
 export const formatOf = (id?: string) => AD_FORMATS.find((f) => f.id === id)
 
 export const HOOKS = ['A', 'B', 'C']
-// Shots in an ad's body: one every 2.5 s or so (ads cut faster than stories).
-export const adShots = (seconds: number) => Math.max(4, Math.min(12, Math.round(seconds / 2.5)))
+// The shortest clip a video model makes, in seconds (5 for Kling and Seedance): every shot is paid for at least this long.
+export function clipSeconds(modelId?: string) {
+  const m = MEDIA_MODELS.find((x) => x.id === modelId)
+  const spec = m && (m.image ?? m.text)
+  const lengths = (spec?.fields.find((f) => f.name === 'duration')?.enum ?? []).map(Number).filter((n) => n > 0)
+  return lengths.length ? Math.min(...lengths) : 5
+}
+// Shots in an ad's body: each shot fills one clip, so the body is what's left of the length after the hook, a clip at a time.
+export const adShots = (seconds: number, clip = 5) => Math.max(2, Math.min(10, Math.round((seconds - clip) / clip)))
 
-// The shots that make it into the ad: once you approve a hook, the hooks you didn't approve are left out (no voices,
-// videos or versions for them). A series, or an ad with no hook approved yet, keeps every shot.
-export const playing = (ep: Pick<Episode, 'scenes'>) =>
-  ep.scenes.some((sc) => sc.hook && sc.approved) ? ep.scenes.filter((sc) => !sc.hook || sc.approved) : ep.scenes
+// The shots that make it into the video: shots you left out never do, and once you approve a hook, the hooks you didn't
+// approve are left out too (no voices, videos or versions for them).
+export function playing(ep: Pick<Episode, 'scenes'>) {
+  const kept = ep.scenes.filter((sc) => !sc.skip)
+  return kept.some((sc) => sc.hook && sc.approved) ? kept.filter((sc) => !sc.hook || sc.approved) : kept
+}
 
 // The versions of an ad: each hook followed by the body. An ad without hooks has one version, all its shots.
 export function adVersions(ep: Pick<Episode, 'scenes'>): { hook?: string; scenes: Scene[] }[] {

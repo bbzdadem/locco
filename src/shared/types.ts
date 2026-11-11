@@ -140,9 +140,11 @@ export type ShotPlan = {
 }
 // Ads: a shot with a hook letter is one of the alternative openings (A, B, C); each version of the ad is one hook plus
 // the shots without one. seconds: how long a shot without dialogue runs (3 s if not set).
+// skip: left out of the video (kept, with its pictures, until it's brought back).
 export type Scene = {
   id: string
   hook?: string
+  skip?: boolean
   seconds?: number
   plan?: ShotPlan
   place: string

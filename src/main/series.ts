@@ -5,7 +5,7 @@ import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { AD_FORMATS, adShots, adVersions, formatOf, HOOKS } from '../shared/ads'
+import { AD_FORMATS, adShots, adVersions, clipSeconds, formatOf, HOOKS } from '../shared/ads'
 import { ELEVEN_VOICES } from '../shared/models'
 import { clipLength, sceneTarget, timing } from '../shared/timing'
 import type { Attachment, Character, Episode, Ref, RenderRequest, ReviewIssue, Scene, Series, ShotPlan } from '../shared/types'
@@ -97,7 +97,7 @@ function scenesFrom(out: { scenes?: any[] }): Scene[] {
       cast: Array.isArray(x.cast) ? x.cast.map(String) : [],
       lines: (Array.isArray(x.lines) ? x.lines : []).slice(0, 2).map((l: any) => ({ speaker: str(l.speaker), text: str(l.text) })).filter((l: any) => l.text),
       ...(HOOKS.includes(str(x.hook)) && { hook: str(x.hook) }),
-      ...(Number(x.seconds) > 0 && { seconds: Math.min(4, Math.max(1.2, Number(x.seconds))) }),
+      ...(Number(x.seconds) > 0 && { seconds: Math.min(10, Math.max(1.2, Number(x.seconds))) }),
       ...(plan && { plan }),
     }
   })
@@ -302,9 +302,10 @@ const AD_CRAFT = [
   'Viewers decide in 1-2 seconds. The HOOK shot (the first 1.5-3 s) opens on the most striking visual of the ad, mid-action, with a text hook on screen: 3-8 words in a native TikTok voice that adds a twist to the picture (POV, "caught", "nobody told me", "my dad…", a confession, a warning). It never describes the video ("Setting up…", "Three steps to…"). Never open with a greeting or a logo.',
   'Hook families: call out the person ("If you have a small apartment…"), show the problem ("If your cables look like this…"), curiosity ("I didn\'t know I needed this until…"), price ("$8 vs $40"), a controlled test ("Same spill, one change"), POV or gift ("POV: you found the perfect gift for your dad"), a warning ("Don\'t buy this until you…"), or the most satisfying visual first.',
   'The entertainment is the moment (funny, surprising, satisfying, relatable, emotional, worth tagging a friend); the product is the reason it happened or the reveal. Keep the ad\'s idea from its brief.',
-  'Then: PROBLEM (the viewer\'s real pain, in their words) → DEMO (the product working, close and clear, one benefit per shot) → PROOF (the result, a reaction, a test) → CALL TO ACTION (soft: "link\'s below", "comment LINK", "save this for later"), or end on a frame that flows back into the first so it loops.',
-  'Pacing: a new picture every 1.5-3 s; nothing static longer than 4 s; every shot shows something new.',
-  'Show, don\'t tell: the product doing its job on camera is the proof. One feature per shot, close enough to see.',
+  'Structure: OPEN on the peak of the moment or a tease of it → the SETUP (how it started) → the TWIST or reveal → the REACTION or payoff → a soft CALL TO ACTION ("link\'s below", "comment LINK", "save this for later") or a frame that loops back to the opening. A product demo or proof belongs in the ad only when the moment is about it; never turn a shareable moment into an explainer.',
+  'Pacing: every shot is one video clip and fills it; something changes every 2-3 s, inside the shot (a reaction, a reveal, the camera pushing in) or by a cut; a setup can turn into its twist inside one shot (0-2 s the bird eats calmly, 2-4 s the cat leaps); nothing static.',
+  'Hooks: exactly 3 (A, B, C), each ONE shot that opens on its most striking frame (the twist itself, or the instant before it), never on a calm lead-in. Text hooks may share the same opening picture with different text; that is how hooks are tested.',
+  'Show, don\'t tell: the product is seen and recognisable where the moment needs it; no feature tours, app screens or specs unless the ad is about them.',
   'Reactions: small, specific and real (eyebrows up, a laugh, a "wait…", leaning in, a dog tilting its head), 1-1.5 s, either as the hook (the face at its peak, then what caused it) or right after the result. No big fake gasps.',
   'Text first: on-screen text carries the story (3-8 words a shot where it helps; the hook shot always has it). No voiceover unless the ad\'s brief asks for one; only a person talking to the camera speaks, like a friend: contractions, "okay so", "honestly", one short sentence per shot (about 2.5 words a second), nothing corporate.',
   'Honesty: show only what the product really does (from the brief); no invented reviews, ratings, statistics, prices or health claims; before/after must be realistic and typical.',
@@ -313,7 +314,7 @@ const AD_CRAFT = [
 const AD_DIRECTION = [
   'For every shot write a plan an image model and a video model can follow exactly. Concrete and visual; it must look like real phone footage.',
   '- shot: one of POV hands (first person, the product held toward the lens), top-down (table and hands), macro detail (texture, button, mechanism, label), hero three-quarter (the product on a real surface), in use (someone using it in a real place, medium), selfie talking (arm\'s length, slightly above eye level, a little off-centre), over the shoulder, reaction close-up, locked before/after (identical framing both times). A phone lens (26mm main, 13mm wide, 77mm tele, close-up macro). Composition in 9:16: key action in the middle; the top 15% and bottom 25% stay free (the app UI and the text cover them).',
-  '- beats: what happens over the shot, timed, 2-3 beats, e.g. "0-1 s the thumb presses the button; 1-2 s the light comes on".',
+  '- beats: what happens over the whole shot (its seconds), timed, 2-3 beats with something changing every 2-3 s, e.g. "0-2 s the thumb presses the button; 2-4 s the light comes on; 4-5 s she looks up, surprised".',
   '- performance: hands relaxed and simple (hold, turn, press, pour, peel), never covering the label; the label faces the camera, never mirrored; the logo first on a reveal; people look into the lens when they talk; reactions small and real.',
   '- move: a phone move: slight handheld drift, a quick push-in, a follow, or locked off on the counter for tests.',
   '- environment: a real lived-in place (kitchen, bathroom, bedroom, car, desk, outdoors) with natural window light or warm lamps and soft shadows; never a studio or a plain backdrop; props stay where they were.',
@@ -324,7 +325,7 @@ const AD_DIRECTION = [
 const craft = (s: Series) => (isAd(s) ? AD_CRAFT : CRAFT)
 const direction = (s: Series) => (isAd(s) ? AD_DIRECTION : DIRECTION)
 const role = (s: Series) => (isAd(s) ? 'organic product videos (ads)' : 'a vertical short series')
-const AD_SHOT = '{"place": "where and when", "action": "what happens in this shot, naming the product and people exactly", "cast": ["people on screen"], "lines": [{"speaker": "Narrator or a name", "text": "the line"}], "text": "on-screen text, 3-8 words, or empty", "seconds": 2}'
+const AD_SHOT = '{"place": "where and when", "action": "what happens in this shot, naming the product and people exactly", "cast": ["people on screen"], "lines": [{"speaker": "Narrator or a name", "text": "the line"}], "text": "on-screen text, 3-8 words, or empty", "seconds": 5}'
 const NEW_CAST_JSON = '"new_characters": [{"name": "...", "look": "precise visual description: age, face, skin, hair, build, clothes", "personality": "...", "voice": "a voice name"}], "new_elements": [{"name": "...", "category": "place or prop", "look": "precise visual description"}]'
 const AD_SCRIPT_JSON = `{"beats": "the beat sheet: numbered beats with their seconds", "format": "the format id", "hooks": [${AD_SHOT}], "scenes": [${AD_SHOT}], ${NEW_CAST_JSON}}`
 // People, places and props a writer added because its ads need them: saved to the library (the caller adds them to the set).
@@ -369,13 +370,14 @@ async function writeAd(s: Series, index: number) {
   const ep = s.episodes[index]
   const product = charactersById([s.product ?? ''])[0]
   const f = formatOf(ep.format)
+  const clip = clipSeconds(s.videoModel)
   const { text, by } = await write(s, [
     'You are the creative lead for organic product videos. First plan the ad as a beat sheet, then write it as shots.',
     AD_CRAFT,
     storySoFar(s, index),
     f ? `Format: ${f.name}. ${f.beats}` : `Pick the format that fits this ad best (reply with its id): ${AD_FORMATS.map((x) => `${x.id}: ${x.beats}`).join(' ')}`,
-    `The ad runs about ${s.seconds} seconds. Write 3 alternative HOOK shots (1.5-3 s each, each a striking opening frame with its own text hook from a different hook family; a hook speaks only if a person talks to the camera), then the body: about ${adShots(s.seconds)} shots that follow on from any of the hooks.`,
-    `Name the product exactly as "${product?.name ?? s.title}" in every shot it is in; name people, places and props exactly. A shot without a line gets "seconds" (1.5-3); a shot with a line runs as long as the line.`,
+    `The ad runs about ${s.seconds} seconds, and every shot is one ${clip}-second video clip (the video model's shortest, paid in full), so each shot fills about ${clip} s with 2-3 beats inside it. Write 3 alternative HOOK shots (each a striking opening frame with its own text hook from a different hook family, landing in the first second, then carrying on into the story for the rest of the shot; a hook speaks only if a person talks to the camera), then the body: about ${adShots(s.seconds, clip)} shots that follow on from any of the hooks.`,
+    `Name the product exactly as "${product?.name ?? s.title}" in every shot it is in; name people, places and props exactly. Give every shot "seconds": about ${clip}; lines are said inside it (a shot runs longer only if its lines need more time).`,
     `Every person on screen is someone from the people list, named exactly, and listed in the shot's "cast"; never "a man" or "her friend". If the ad needs a person, place or recurring prop the lists lack, add them (at most 2 each) to new_characters / new_elements and use those names. Voices to choose from (name only): ${voiceList()}.`,
     'If the ad brief already has lines, beats or timings, keep them; build on them.',
     `Reply with JSON only:\n${AD_SCRIPT_JSON}`,
@@ -383,11 +385,11 @@ async function writeAd(s: Series, index: number) {
   ].join('\n\n'), `Ad ${index + 1}: ${ep.title}\n${ep.summary}`)
   const out = json<{ beats?: string; format?: string; hooks?: any[]; scenes?: any[] }>(text)
   const hooks = (out.hooks ?? []).slice(0, 3).map((h, i) => ({ ...h, hook: HOOKS[i] }))
-  return { beats: str(out.beats), scenes: scenesFrom({ scenes: [...hooks, ...(out.scenes ?? [])] }), by, format: formatOf(str(out.format))?.id, created: newCast(out as any, 2) }
+  return { beats: str(out.beats), scenes: oneShotHooks(scenesFrom({ scenes: [...hooks, ...(out.scenes ?? [])] })), by, format: formatOf(str(out.format))?.id, created: newCast(out as any, 2) }
 }
 
 const plain = (scenes: Scene[]) => scenes.map(({ place, action, cast, lines, plan, hook, seconds }) =>
-  ({ ...(hook && { hook }), place, action, cast, lines: lines.map(({ speaker, text }) => ({ speaker, text })), ...(seconds && !lines.length && { seconds }), ...(plan && { plan }) }))
+  ({ ...(hook && { hook }), place, action, cast, lines: lines.map(({ speaker, text }) => ({ speaker, text })), ...(seconds && { seconds }), ...(plan && { plan }) }))
 
 // Pass 2, the director: a plan for every shot that has none. Each shot is planned on its own (five at a time) with the
 // whole episode as context, so plans stay in continuity and a full episode is planned in about a minute. A shot that
@@ -442,11 +444,11 @@ export async function improveScene(s: Series, index: number, scenes: Scene[], at
 // problem tied to its shots with a concrete fix. A different model from the writer, so no one grades their own work.
 const reviewerOf = (writer: string) => (writer === 'gpt-6-sol' ? 'claude-sonnet-5-5' : 'gpt-6-sol')
 const AD_REVIEW = [
-  'Hooks: each opens on a striking visual with a 3-8 word text hook that adds a twist (never describes the video), works as the first shot on its own, and the three use different hook families.',
+  'Hooks: each opens on its most striking frame (not a calm lead-in) with a 3-8 word text hook that adds a twist (never describes the video) and works as the first shot on its own. The three may share the same picture with different text.',
   'Shareability: would a scroller stop, rewatch, comment or tag someone? An ad that is only a product explainer fails this; say what moment would make it worth sharing.',
-  'Flow: problem → the product working → proof (a result, a reaction or a test) → a soft call to action or a loop; nothing missing, nothing out of order; every shot shows something new.',
-  'Product: it appears and is named exactly where it matters, and is shown working on camera, not just described or held up.',
-  'Pacing: no shot over 4 s; each version (one hook and the shots after it) within about 20% of the target length; every line short enough to say in its shot (about 2.5 words a second).',
+  'Flow: the moment builds and pays off (setup → twist or reveal → reaction or payoff → a soft call to action or a loop); every shot shows something new; nothing repeats a beat the viewer already saw.',
+  'Product: it is clearly the reason the moment happened and is recognisable at least once; do not ask for feature demos, app screens or specs unless the ad is about them.',
+  'Pacing: each shot fills its clip (the clip length is given) with something changing every 2-3 s inside it or by a cut; each version (one hook and the shots after it) within about 20% of the target length; every line short enough to say in its shot (about 2.5 words a second).',
   'Honesty: nothing breaks the brief\'s "Never claim" list; no invented reviews, ratings, statistics, prices or health claims; a before/after is realistic.',
   'Continuity and variety: place, props, light and what the hands hold carry over between shots; framing varies (never three similar shots in a row); on-screen text is short (3-8 words).',
   'Cast: everyone on screen is a named person from the people list (in the shot\'s cast), and every place or prop that recurs is a named one; flag "a man", "her friend" or a place that changes from shot to shot.',
@@ -473,10 +475,11 @@ export async function reviewScript(s: Series, index: number, scenes: Scene[], wr
     craft(s),
     storySoFar(s, index),
     f && `Format: ${f.name}. ${f.beats}`,
-    `Target length: about ${s.seconds} seconds${ad ? ' for each version (one hook followed by the shots without a hook)' : ''}. Shot lengths come from their lines (or their own seconds when silent).`,
+    `Target length: about ${s.seconds} seconds${ad ? ' for each version (one hook followed by the shots without a hook)' : ''}. Shot lengths come from their lines (or their own seconds when silent).${ad ? ` Each shot is one ${clipSeconds(s.videoModel)}-second video clip.` : ''}`,
     `Check:\n${(ad ? AD_REVIEW : SERIES_REVIEW).map((c) => `- ${c}`).join('\n')}`,
     'Report only real problems that would hurt retention, clarity, continuity or honesty, not matters of taste: most important first, at most 8. Each names its shots by their "shot" label, says what is wrong and why it hurts, and gives the concrete change to make. scope is "shot" when the fix stays inside one shot, "script" when it needs shots added, removed, reordered or changed together.',
     'verdict is "ready" only when nothing you list would noticeably hurt the video.',
+    ad && 'Never suggest a change that turns a shareable moment into a product explainer, moves the strongest moment later, or adds hook shots: there are exactly 3 hooks of one shot each; to change an opening, change that hook shot.',
     'Reply with JSON only: {"verdict": "ready or fix", "summary": "1-2 sentences on how the video flows as a whole", "issues": [{"shots": ["A", "3"], "scope": "shot or script", "problem": "...", "fix": "..."}]}',
     languageOf(s),
   ].filter(Boolean).join('\n\n'), JSON.stringify({ title: ep.title, brief: ep.summary, beats: ep.beats, lengths, shots }), reviewerOf(writtenBy))
@@ -492,14 +495,21 @@ export async function reviseScript(s: Series, index: number, scenes: Scene[], ch
   const { text } = await write(s, [
     `You revise one ${isAd(s) ? 'ad of a set of organic product videos' : 'episode of a vertical short series'}. Apply the requested change and keep everything else as it is, shot plans included (update them where the change needs it).`,
     craft(s),
-    isAd(s) && 'Keep each shot\'s "hook" letter (alternative openings) and "seconds".',
+    isAd(s) && 'Keep each shot\'s "hook" letter and "seconds". There are exactly 3 hooks (A, B, C), each ONE shot: to change how a version opens, rewrite that hook shot (two beats can happen inside it); never add hook shots or reuse a letter.',
     storySoFar(s, index),
     `Current episode:\n${JSON.stringify({ scenes: plain(scenes) })}`,
     `Reply with the full revised ${isAd(s) ? 'ad' : 'episode'}, JSON only:\n${directedJson(s)}`,
     'Never more than 15 shots, at most 2 lines per shot.',
     languageOf(s),
   ].filter(Boolean).join('\n\n'), change)
-  return scenesFrom(json(text))
+  return isAd(s) ? oneShotHooks(scenesFrom(json(text))) : scenesFrom(json(text))
+}
+
+// An ad has one shot per hook letter. A writer that "adds a reaction before hook A" makes a second A; the extra ones are
+// kept but left out (with their pictures), so the versions stay one hook each and nothing is lost.
+function oneShotHooks(scenes: Scene[]) {
+  const seen = new Set<string>()
+  return scenes.map((sc) => (!sc.hook ? sc : seen.has(sc.hook) ? { ...sc, skip: true } : (seen.add(sc.hook), sc)))
 }
 
 // Sharpens an episode summary (the brief its script is written from) using the story bible and earlier episodes.

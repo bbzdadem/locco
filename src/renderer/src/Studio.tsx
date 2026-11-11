@@ -60,8 +60,15 @@ export async function buildEpisodeProject(s: Series, ep: Episode, t: Tasks, scen
     {
       const src = await api.mediaSeconds(file)
       const out = Math.min(src || tm.seconds, tm.seconds)
-      p.items.push({ id: crypto.randomUUID(), track: MAIN, start: at, label: `Scene ${i + 1}`, ref: { kind: 'media', file }, media: 'video', source: src, in: 0, out: +out.toFixed(3),
-        hold: +Math.max(0, tm.seconds - out).toFixed(3), speed: 1, pan: 0, zoom: 1, sound: !!s.videoSound && !synced(t, sc), volume: 1 })
+      const clip = { track: MAIN, start: at, ref: { kind: 'media' as const, file }, media: 'video' as const, source: src, speed: 1, pan: 0, sound: !!s.videoSound && !synced(t, sc), volume: 1 }
+      const hold = +Math.max(0, tm.seconds - out).toFixed(3)
+      // An ad's long shot (a whole 4-5 s clip) is cut in two with a punch-in on the second half: a new picture every
+      // 2-3 s without paying for another clip.
+      if (ad && out >= 4) {
+        const mid = +(out / 2).toFixed(3)
+        p.items.push({ ...clip, id: crypto.randomUUID(), label: `Scene ${i + 1}`, in: 0, out: mid, hold: 0, zoom: 1 })
+        p.items.push({ ...clip, id: crypto.randomUUID(), label: `Scene ${i + 1} (closer)`, in: mid, out: +out.toFixed(3), hold, zoom: 1.2 })
+      } else p.items.push({ ...clip, id: crypto.randomUUID(), label: `Scene ${i + 1}`, in: 0, out: +out.toFixed(3), hold, zoom: 1 })
     }
     // The director's on-screen text (usually the hook) goes on the text track at the start of its shot.
     if (sc.plan?.text?.trim())
