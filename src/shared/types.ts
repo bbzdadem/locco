@@ -239,9 +239,24 @@ export type Item = {
   fadeIn?: number
   fadeOut?: number
   text?: string
-  style?: 'caption' | 'title'
+  // Text: 'box' draws it on a coloured box; color is the text's colour (the box's, for 'box'); size scales it; x and y
+  // place its centre (0-1 of the frame) instead of position; anim is how it comes and goes; hl highlights one word
+  // (word-by-word captions).
+  style?: 'caption' | 'title' | 'box'
   position?: 'top' | 'middle' | 'bottom'
+  color?: string
+  size?: number
+  x?: number
+  y?: number
+  anim?: 'fade' | 'slide'
+  hl?: number
+  // Pictures: movement over the clip, and how it starts after the clip before. An overlay's scale is its width (0-1 of
+  // the frame); x and y place its centre.
+  motion?: Motion
+  transition?: 'black' | 'flash' | 'zoom'
+  scale?: number
 }
+export type Motion = 'push-in' | 'pull-out' | 'pan-left' | 'pan-right'
 export type Aspect = '9:16' | '16:9' | '1:1'
 export type EditProject = {
   id: string
@@ -251,6 +266,8 @@ export type EditProject = {
   items: Item[]
   imports: Attachment[]
   exports: string[]
+  // The export's size: 1080p unless set to 720p.
+  resolution?: '720p' | '1080p'
   episode?: { series: string; episode: string }
   createdAt: number
 }
@@ -259,7 +276,10 @@ export type ProjectRender = {
   name: string
   aspect: Aspect
   preview?: boolean
-  main: { ref: Ref; media: 'video' | 'image'; in: number; out: number; length: number; speed: number; pan: number; zoom: number; sound: boolean; volume: number }[]
-  texts: { ref: Ref; start: number; length: number }[]
+  resolution?: '720p' | '1080p'
+  main: { ref: Ref; media: 'video' | 'image'; in: number; out: number; length: number; speed: number; pan: number; zoom: number; sound: boolean; volume: number; motion?: Motion; transition?: Item['transition'] }[]
+  // Pictures and clips laid over the main track (picture in picture, logos, screen recordings).
+  overlays: { ref: Ref; media: 'video' | 'image'; start: number; in: number; out: number; length: number; speed: number; x: number; y: number; scale: number; sound: boolean; volume: number }[]
+  texts: { ref: Ref; start: number; length: number; anim?: Item['anim'] }[]
   audio: { ref: Ref; start: number; in: number; out: number; volume: number; fadeIn: number; fadeOut: number }[]
 }

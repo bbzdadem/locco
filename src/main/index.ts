@@ -10,7 +10,7 @@ import {
   renameChat, runCall, saveProject, searchChats, send, stopChat,
 } from './chat'
 import { dirs, getSetting, openDb, setSetting, usage } from './db'
-import { deleteProject as deleteEdit, listProjects as listEdits, renderProject, saveProject as saveEdit, thumb } from './editor'
+import { deleteProject as deleteEdit, listProjects as listEdits, renderProject, saveProject as saveEdit, thumb, wordsIn } from './editor'
 import { addVoice, allVoices, hasElevenKey, setElevenKey } from './eleven'
 import { credits, setKey } from './kie'
 import { mimeOf, pathOf, saveUpload } from './media'
@@ -201,6 +201,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('edits:save', (_e, p: EditProject) => saveEdit(p))
   ipcMain.handle('edits:delete', (_e, id: string) => deleteEdit(id))
   ipcMain.handle('edits:render', (_e, req: ProjectRender) => renderProject(req))
+  ipcMain.handle('edits:words', (_e, ref: Ref, from: number, to: number) => wordsIn(ref, from, to))
   ipcMain.handle('chat:send', (_e, req: SendRequest) => send(req, emit))
   ipcMain.handle('chat:regenerate', (_e, id: string, model: string, thinking: boolean, agent: boolean) => regenerate(id, model, thinking, agent, emit))
   ipcMain.handle('chat:stop', (_e, id: string) => void stopChat(id))

@@ -59,6 +59,7 @@ const api = {
   saveEdit: (p: EditProject): Promise<void> => ipcRenderer.invoke('edits:save', p),
   deleteEdit: (id: string): Promise<void> => ipcRenderer.invoke('edits:delete', id),
   renderEdit: (req: ProjectRender): Promise<string> => ipcRenderer.invoke('edits:render', req),
+  wordsIn: (ref: Ref, from: number, to: number): Promise<{ text: string; start: number; end: number }[]> => ipcRenderer.invoke('edits:words', ref, from, to),
   send: (req: SendRequest): Promise<void> => ipcRenderer.invoke('chat:send', req),
   regenerate: (chatId: string, model: string, thinking: boolean, agent: boolean): Promise<void> =>
     ipcRenderer.invoke('chat:regenerate', chatId, model, thinking, agent),

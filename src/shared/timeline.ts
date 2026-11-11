@@ -48,3 +48,20 @@ export function snap(t: number, edges: number[], within: number) {
 }
 
 export const SIZE: Record<EditProject['aspect'], [number, number]> = { '9:16': [720, 1280], '16:9': [1280, 720], '1:1': [720, 720] }
+const HD: Record<EditProject['aspect'], [number, number]> = { '9:16': [1080, 1920], '16:9': [1920, 1080], '1:1': [1080, 1080] }
+// The export's size: 1080p unless the project asks for 720p.
+export const sizeOf = (aspect: EditProject['aspect'], resolution?: EditProject['resolution']) => (resolution === '720p' ? SIZE : HD)[aspect]
+
+// Movement and transitions, shared by the preview and the export so they match. A moving clip is shown 12% larger and
+// moves inside that margin over the clip; a zoom transition starts 25% closer and settles over 0.3 s; a dip through
+// black or white lasts 0.2 s on each side of the cut.
+export const MOVE = 0.12
+export const ZOOM_IN = { scale: 0.25, seconds: 0.3 }
+export const DIP = 0.2
+// How a moving clip looks at progress f (0 to 1 through the clip): its zoom and its horizontal place (0 left, 1 right).
+export function motionAt(motion: Item['motion'], f: number) {
+  const p = Math.min(1, Math.max(0, f))
+  const zoom = motion === 'push-in' ? 1 + MOVE * p : motion === 'pull-out' ? 1 + MOVE * (1 - p) : motion ? 1 + MOVE : 1
+  const x = motion === 'pan-left' ? 1 - p : motion === 'pan-right' ? p : 0.5
+  return { zoom, x }
+}
