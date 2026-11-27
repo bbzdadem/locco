@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
-import { extname, join } from 'node:path'
+import { basename, extname, join } from 'node:path'
 import type { Attachment, Ref } from '../shared/types'
 import { db, dirs } from './db'
 import { upload } from './kie'
@@ -13,7 +13,10 @@ const MIME: Record<string, string> = {
 export const mimeOf = (file: string) => MIME[extname(file).toLowerCase()] ?? 'application/octet-stream'
 const extOf = (mime: string | null) => Object.entries(MIME).find(([, m]) => m === mime?.split(';')[0])?.[0] ?? ''
 
-export const pathOf = (ref: Ref) => join(dirs[ref.kind], ref.file)
+export const pathOf = (ref: Ref) => {
+  if (ref.kind !== 'media' && ref.kind !== 'uploads') throw new Error('Not a locco file.')
+  return join(dirs[ref.kind], basename(ref.file))
+}
 
 // Attachments are stored by content hash, so the same file dropped twice is kept once.
 export async function saveUpload(name: string, mime: string, bytes: Uint8Array): Promise<Attachment> {

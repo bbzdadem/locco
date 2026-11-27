@@ -128,6 +128,7 @@ export async function removeTask(id: string) {
 
 // Checks unfinished jobs every 4 s and saves results to disk. Runs from launch, so jobs survive a restart.
 let sweeping = false
+const failingSince = new Map<string, number>() // job id → when its checks started failing
 async function sweep() {
   if (sweeping) return
   sweeping = true
@@ -138,6 +139,7 @@ async function sweep() {
     for (const t of pending) {
       try {
         const info = await taskInfo(t.id)
+        failingSince.delete(t.id)
         if (info.state === 'success') {
           const result = JSON.parse(info.resultJson || '{}')
           const files: string[] = []
@@ -167,8 +169,11 @@ async function sweep() {
         } else continue
         changed = true
       } catch (e) {
-        // Network blips retry on the next sweep. A job kie still hasn't answered after 2 hours is given up.
-        if (Date.now() - t.created_at > 2 * 3600_000) {
+        // Network blips (waking from sleep, say) retry on the next sweep. A job whose checks keep failing for 2 hours is given up.
+        const since = failingSince.get(t.id) ?? Date.now()
+        failingSince.set(t.id, since)
+        if (Date.now() - since > 2 * 3600_000) {
+          failingSince.delete(t.id)
           db.prepare("UPDATE tasks SET state = 'fail', error = ? WHERE id = ?").run(`Gave up: ${(e as Error).message}`, t.id)
           changed = true
         }
@@ -194,7 +199,9 @@ export async function transcribe(recording: Ref): Promise<string> {
 
 export function startPoller(onChange: () => void) {
   notify = onChange
-  // ElevenLabs jobs that were queued or on their way when locco quit: send them again (a reply in flight was lost).
+  // ElevenLabs jobs still queued when locco quit are sent now. One already sent may have been billed, so it isn't sent twice.
+  db.prepare("UPDATE tasks SET state = 'fail', error = ? WHERE id LIKE 'el-%' AND state = 'generating'")
+    .run('Stopped when locco quit while ElevenLabs was making it. Not sent again, so you aren\'t charged twice: try again if it isn\'t in your ElevenLabs history.')
   const unfinished = db.prepare("SELECT id, model_id, variant, prompt, input FROM tasks WHERE id LIKE 'el-%' AND state NOT IN ('success', 'fail') ORDER BY created_at").all() as any[]
   for (const r of unfinished) {
     try {

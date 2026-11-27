@@ -411,10 +411,10 @@ async function compact(chatId: string, history: Message[], signal: AbortSignal) 
 // --- One reply: a single answer, or in agent mode up to MAX_STEPS answers that see their own results ---
 
 const costOf = (c: ToolCall) => estimate(c.modelId, c.input, c.prompt.length)?.hi ?? 0
-// Credits a reply has used so far: its chat turns plus what its generations cost (or are expected to).
+// Credits a reply has used so far: its chat turns plus what its generations cost (or are expected to), counting ones waiting for Run.
 const spent = (msg: Message) =>
   (msg.credits ?? 0) +
-  (msg.calls ?? []).filter((c) => c.status === 'started').reduce((n, c) => n + (c.taskIds ?? []).reduce((m, id) => m + (getTask(id)?.credits ?? costOf(c)), 0), 0)
+  (msg.calls ?? []).reduce((n, c) => n + (c.status === 'pending' ? costOf(c) : c.status === 'started' ? (c.taskIds ?? []).reduce((m, id) => m + (getTask(id)?.credits ?? costOf(c)), 0) : 0), 0)
 
 // Waits until every call in a step is finished, failed, cancelled or still waiting after 30 minutes.
 async function settle(calls: ToolCall[], signal: AbortSignal) {

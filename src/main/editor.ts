@@ -301,7 +301,8 @@ async function renderOnce(req: ProjectRender): Promise<string> {
   args.push('-filter_complex', filters.join(';'), '-map', `[${video}]`, '-map', '[aout]', ...(from > 0 ? ['-ss', f3(from)] : []), '-to', f3(to),
     '-c:v', 'libx264', '-preset', req.preview ? 'ultrafast' : high ? 'medium' : 'veryfast', '-crf', req.preview ? '28' : high ? '16' : '20',
     '-c:a', 'aac', '-b:a', high ? '256k' : '160k', '-movflags', '+faststart', join(dirs.media, file))
-  await run(ffmpeg(), args, { maxBuffer: 16 * 1024 * 1024 }).catch((e) => {
+  await run(ffmpeg(), args, { maxBuffer: 16 * 1024 * 1024, timeout: 45 * 60_000 }).catch((e) => {
+    if (e.killed) throw new Error('Export stopped: it was still running after 45 minutes. Try a shorter part or the normal quality.')
     throw new Error(`Export failed: ${String(e.stderr || e.message).trim().split('\n').at(-1)}`)
   })
   return file
