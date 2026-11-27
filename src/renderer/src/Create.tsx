@@ -1,11 +1,11 @@
-import { AudioLines, AudioWaveform, Clapperboard, Download, Image, ImagePlus, LoaderCircle, Maximize2, MessageSquare, Music, Play, Plus, RotateCcw, Scissors, SlidersHorizontal, Sparkles, Star, Trash2, TriangleAlert, WandSparkles, X } from 'lucide-react'
+import { AudioLines, AudioWaveform, Clapperboard, FolderOpen, Image, ImagePlus, LoaderCircle, Maximize2, MessageSquare, Music, Play, Plus, RotateCcw, Scissors, SlidersHorizontal, Sparkles, Star, Trash2, TriangleAlert, WandSparkles, X } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { generators, isEleven, kindOf, MEDIA_MODELS, withBest } from '../../shared/models'
-import { buildInput, capOf, fill, isMain, refList, resolveMentions, slotLabel, slotsOf, valid, current, type Refs } from '../../shared/inputs'
+import { buildInput, capOf, fileKind, fill, isMain, refList, resolveMentions, slotLabel, slotsOf, valid, current, type Refs } from '../../shared/inputs'
 import { estimate, priceLabel } from '../../shared/prices'
 import type { Attachment, Field, MediaKind, Task } from '../../shared/types'
-import { ACCEPT_IMAGES, api, errMsg, fmtCredits, load, mediaUrl, pretty, save, toAttachments } from './lib'
+import { ACCEPT_AUDIO, ACCEPT_IMAGES, ACCEPT_VIDEO, api, errMsg, fmtCredits, load, mediaUrl, pretty, save, toAttachments, videoLength } from './lib'
 import { Header, IconButton, SelectChip } from './ui'
 import { VoiceTools } from './Voices'
 
@@ -15,15 +15,19 @@ type Actions = {
   toChat: (it: Item) => void
   animate: (it: Item) => void
   useAsRef: (it: Item) => void
+  // Start a video with this file in the slot that takes it (a voice track for an avatar, a video to copy motion from).
+  useIn: (modelId: string, it: Item) => void
   reuse: (t: Task) => void
   tool: (id: string, it: Item) => void
   suno: (id: 'suno-extend' | 'suno-stems', it: Item) => void
-  saveAs: (file: string) => void
+  reveal: (file: string) => void
   star: (t: Task) => void
   remove: (t: Task) => void
   retry: (t: Task) => void
 }
 
+const MIME: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', mp4: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm',
+  mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', aac: 'audio/aac', ogg: 'audio/ogg' }
 const SHORT = new Set(['aspect_ratio', 'resolution', 'image_size', 'ratio'])
 const EXAMPLES: Record<MediaKind, string[]> = {
   image: [
@@ -132,13 +136,14 @@ export function Create({ header, onChanged, onSendToChat }: { header: HeaderProp
   const list = generators(tab)
   const model = list.find((m) => m.id === modelIds[tab]) ?? list[0]
   const v = values[model.id] ?? {}
-  const { slots, hasRefs, variant, spec, input, missing } = buildInput(model, v, refs)
+  const { slots, hasRefs, variant, spec, input, missing, notes } = buildInput(model, v, refs)
   const fields = spec.fields.filter((f) => !f.media && !isMain(f))
   const chips = fields.filter((f) => f.enum || f.type === 'boolean')
   const extras = fields.filter((f) => !f.enum && f.type !== 'boolean' && f.type !== 'array')
   const promptField = spec.fields.find(isMain)
   const showExtras = more || v.custom_mode === true // custom lyrics need a style and a title
-  const cost = priceLabel(estimate(model.id, input, prompt.length), count)
+  const refSeconds = Object.values(refs).flat().filter((a) => fileKind(a) === 'video').reduce((n, a) => n + videoLength(a, () => redraw((x) => x + 1)), 0)
+  const cost = priceLabel(estimate(model.id, input, prompt.length, refSeconds), count)
 
   // @ mentions: type @ to point at a numbered reference (@img1, @img2 …).
   const numbered = refList(slots, refs).map((r, i) => ({ ...r, n: i + 1 }))
@@ -184,8 +189,10 @@ export function Create({ header, onChanged, onSendToChat }: { header: HeaderProp
     })
 
   async function addRefs(files: FileList | File[], only?: string) {
-    const added = await toAttachments(files, ACCEPT_IMAGES)
-    if (!added.length) return setError('Images must be PNG, JPG or WebP.')
+    const kinds = new Set(slots.map((f) => f.accept ?? 'image'))
+    const accept = [ACCEPT_IMAGES, kinds.has('video') && ACCEPT_VIDEO, kinds.has('audio') && ACCEPT_AUDIO].filter(Boolean).join(',')
+    const added = await toAttachments(files, accept)
+    if (!added.length) return setError(kinds.size > 1 ? 'Use PNG, JPG or WebP images, MP4 or MOV videos, or MP3, WAV or M4A audio.' : 'Images must be PNG, JPG or WebP.')
     setError('')
     if (slots.length) return setRefs((r) => fill(r, slots, added, only))
     // This model takes no images: switch to one that does.
@@ -193,7 +200,7 @@ export function Create({ header, onChanged, onSendToChat }: { header: HeaderProp
     pickModel(tab, m.id, fill({}, slotsOf(m), added))
   }
 
-  // ✨ Rewrites a short idea into a detailed prompt with GPT 6 Sol (a few chat credits). Speech text is never rewritten.
+  // ✨ Rewrites a short idea into a detailed prompt with Claude Sonnet 5.5 (GPT 6 Sol without a Claude key). Speech text is never rewritten.
   async function enhance() {
     if (enhancing || !prompt.trim()) return
     setEnhancing(true)
@@ -229,7 +236,7 @@ export function Create({ header, onChanged, onSendToChat }: { header: HeaderProp
   const items = useMemo<Item[]>(
     () =>
       tasks
-        .filter((t) => kindOf(t.modelId) === tab && !MEDIA_MODELS.find((m) => m.id === t.modelId)?.hidden && (!favorites || t.starred))
+        .filter((t) => kindOf(t.modelId) === tab && t.modelId !== 'footage' && !MEDIA_MODELS.find((m) => m.id === t.modelId)?.hidden && (!favorites || t.starred))
         .flatMap((t) => (t.state === 'success' && t.files.length ? t.files.map((file) => ({ task: t, file })) : [{ task: t }])),
     [tasks, tab, favorites],
   )
@@ -241,19 +248,29 @@ export function Create({ header, onChanged, onSendToChat }: { header: HeaderProp
   }, [items, cols])
 
   const run = useCallback((p: Promise<unknown>) => void p.catch((e) => setError(errMsg(e))), [])
-  const asAttachment = (file: string): Attachment => ({ kind: 'media', file, name: file, mime: 'image/png' })
+  const asAttachment = (file: string): Attachment => ({ kind: 'media', file, name: file, mime: MIME[file.split('.').pop()!.toLowerCase()] ?? 'image/png' })
   const actions: Actions = {
     toChat: (it) => onSendToChat(asAttachment(it.file!)),
     animate: (it) => {
       const videos = generators('video')
       const cur = videos.find((m) => m.id === modelIds.video)
-      const m = cur && slotsOf(cur).length ? cur : videos.find((x) => slotsOf(x).length)!
-      const s = slotsOf(m)
+      // A model that starts from an image alone (not one that also needs a voice track or a video).
+      const animates = (x: (typeof videos)[number]) => slotsOf(x).some((f) => f.accept === 'image') && !slotsOf(x).some((f) => f.required && f.accept !== 'image')
+      const m = cur && animates(cur) ? cur : videos.find(animates)!
+      const s = slotsOf(m).filter((f) => f.accept === 'image')
       const start = s.find((f) => /first|start/i.test(f.name)) ?? s[0]
       setTab('video')
       save('create.tab', 'video')
       pickModel('video', m.id, { [start.name]: [asAttachment(it.file!)] })
       setPrompt('')
+      setOpen(null)
+      area.current?.focus()
+    },
+    useIn: (id, it) => {
+      const m = MEDIA_MODELS.find((x) => x.id === id)!
+      setTab('video')
+      save('create.tab', 'video')
+      pickModel('video', id, fill({}, slotsOf(m), [asAttachment(it.file!)]))
       setOpen(null)
       area.current?.focus()
     },
@@ -296,9 +313,15 @@ export function Create({ header, onChanged, onSendToChat }: { header: HeaderProp
       run(api.generate({ modelId: id, variant: 'tool', prompt: id === 'suno-extend' ? '' : it.task.prompt, input, count: 1 }))
       setOpen(null)
     },
-    saveAs: (file) => run(api.saveAs({ kind: 'media', file })),
+    reveal: (file) => run(api.reveal({ kind: 'media', file })),
     star: (t) => run(api.starTask(t.id, !t.starred)),
-    remove: (t) => (run(api.removeTask(t.id)), setOpen(null)),
+    // Trashing a file an edit uses breaks that edit, so it asks first (the files can be put back from the Trash).
+    remove: async (t) => {
+      const using = (await api.edits()).filter((e) => e.items.some((it) => it.ref?.kind === 'media' && t.files.includes(it.ref.file)))
+      if (using.length && !confirm(`This is used in ${using.length === 1 ? 'the edit' : `${using.length} edits`} “${using.map((e) => e.title).join('”, “')}”. Moving it to the Trash leaves ${using.length === 1 ? 'that edit' : 'them'} with a missing clip. Move it to the Trash anyway?`)) return
+      run(api.removeTask(t.id))
+      setOpen(null)
+    },
     retry: (t) => run(api.generate({ modelId: t.modelId, variant: t.variant, prompt: t.prompt, input: t.input, count: 1 })),
   }
 
@@ -366,7 +389,9 @@ export function Create({ header, onChanged, onSendToChat }: { header: HeaderProp
                       <div className="flex gap-1.5">
                         {mine.map((r) => (
                           <div key={r.file} className="group relative">
-                            <img src={mediaUrl(r)} alt={label || 'Reference'} className="size-12 rounded-lg border border-line object-cover" />
+                            {fileKind(r) === 'video' ? <video src={mediaUrl(r)} muted className="size-12 rounded-lg border border-line object-cover" />
+                              : fileKind(r) === 'audio' ? <span title={r.name} className="flex size-12 items-center justify-center rounded-lg border border-line text-muted"><AudioLines size={18} /></span>
+                              : <img src={mediaUrl(r)} alt={label || 'Reference'} className="size-12 rounded-lg border border-line object-cover" />}
                             <span className="pointer-events-none absolute bottom-0.5 left-0.5 rounded bg-black/65 px-1 text-[10px] leading-4 font-medium text-white tabular-nums">
                               {numbered.find((x) => x.a === r)?.n}
                             </span>
@@ -385,10 +410,14 @@ export function Create({ header, onChanged, onSendToChat }: { header: HeaderProp
                             type="button"
                             title={`${label || 'Add reference images'}${capOf(f) > 1 ? ` (up to ${capOf(f)})` : ''}${f.required ? ', required' : ''}`}
                             aria-label={label || 'Add reference images'}
-                            onClick={() => ((pickTarget.current = f.name), picker.current?.click())}
+                            onClick={() => {
+                              pickTarget.current = f.name
+                              if (picker.current) picker.current.accept = f.accept === 'video' ? ACCEPT_VIDEO : f.accept === 'audio' ? ACCEPT_AUDIO : ACCEPT_IMAGES
+                              picker.current?.click()
+                            }}
                             className={`flex size-12 items-center justify-center rounded-lg border border-dashed text-muted hover:border-fg hover:text-fg ${f.required ? 'border-muted' : 'border-faint'}`}
                           >
-                            <ImagePlus size={18} />
+                            {f.accept === 'video' ? <Clapperboard size={18} /> : f.accept === 'audio' ? <AudioLines size={18} /> : <ImagePlus size={18} />}
                           </button>
                         )}
                       </div>
@@ -496,7 +525,7 @@ export function Create({ header, onChanged, onSendToChat }: { header: HeaderProp
                 type="button"
                 onClick={enhance}
                 disabled={enhancing || !prompt.trim()}
-                title="Improve this prompt with GPT 6 Sol (costs a few chat credits)"
+                title="Improve this prompt with Claude Sonnet 5.5 (GPT 6 Sol without a Claude key)"
                 className="inline-flex h-8 items-center gap-1.5 rounded-full border border-line px-3 text-[13px] text-muted hover:bg-raised hover:text-fg disabled:opacity-40 disabled:hover:bg-transparent"
               >
                 {enhancing ? <LoaderCircle size={14} className="animate-spin" /> : <WandSparkles size={14} />} Improve
@@ -526,6 +555,7 @@ export function Create({ header, onChanged, onSendToChat }: { header: HeaderProp
                   {missing ? `Add a ${slotLabel(missing, tab).toLowerCase() || 'reference image'} to start` : isEleven(model.id) ? 'Billed to your ElevenLabs plan' : cost}
                 </span>
               )}
+              {notes.map((n) => <span key={n} className="pr-1 text-[11px] text-muted">{n}</span>)}
             </div>
           </div>
 
@@ -581,9 +611,10 @@ function actionList(it: Item, a: Actions) {
       suno && { title: `Extend this song (${priceLabel(estimate('suno-extend', {}))})`, Icon: Plus, run: () => a.suno('suno-extend', it) },
       suno && { title: `Split vocals and music (${priceLabel(estimate('suno-stems', {}))})`, Icon: AudioLines, run: () => a.suno('suno-stems', it) },
       { title: 'Isolate the voice, remove background noise (ElevenLabs)', Icon: AudioWaveform, run: () => a.tool('el-isolate', it) },
+      /tts/.test(it.task.modelId) && { title: 'Make a talking video with this voice (add a photo next)', Icon: Clapperboard, run: () => a.useIn('kling-avatar', it) },
       { title: it.task.starred ? 'Remove from favorites' : 'Add to favorites', Icon: Star, run: () => a.star(it.task) },
       { title: 'Reuse prompt and settings', Icon: RotateCcw, run: () => a.reuse(it.task) },
-      { title: 'Save as…', Icon: Download, run: () => a.saveAs(it.file!) },
+      { title: 'Show in Finder', Icon: FolderOpen, run: () => a.reveal(it.file!) },
       { title: 'Move to Trash', Icon: Trash2, run: () => a.remove(it.task) },
     ].filter((x) => !!x)
   }
@@ -592,12 +623,13 @@ function actionList(it: Item, a: Actions) {
     !video && { title: 'Animate into a video', Icon: Clapperboard, run: () => a.animate(it) },
     !video && { title: 'Ask about it in chat', Icon: MessageSquare, run: () => a.toChat(it) },
     !video && { title: 'Use as reference', Icon: ImagePlus, run: () => a.useAsRef(it) },
+    video && { title: 'Copy this motion onto a character (add a photo next)', Icon: Clapperboard, run: () => a.useIn('kling-motion', it) },
     { title: 'Reuse prompt and settings', Icon: RotateCcw, run: () => a.reuse(it.task) },
     video
       ? { title: `Upscale with Topaz (${priceLabel(estimate('video-upscale', { upscale_factor: '2', duration: it.task.input.duration }))})`, Icon: Maximize2, run: () => a.tool('video-upscale', it) }
       : { title: `Upscale with Topaz (${priceLabel(estimate('upscale', {}))})`, Icon: Maximize2, run: () => a.tool('upscale', it) },
     !video && { title: `Remove background (${priceLabel(estimate('remove-bg', {}))})`, Icon: Scissors, run: () => a.tool('remove-bg', it) },
-    { title: 'Save as…', Icon: Download, run: () => a.saveAs(it.file!) },
+    { title: 'Show in Finder', Icon: FolderOpen, run: () => a.reveal(it.file!) },
     { title: 'Move to Trash', Icon: Trash2, run: () => a.remove(it.task) },
   ]
   return list.filter((x) => !!x)

@@ -1,18 +1,18 @@
-import { ArrowRight, Check, ListChecks, Mic, Coins, Smile, ChevronLeft, ChevronRight, Clapperboard, Download, FileText, Film, ImagePlus, LoaderCircle, Plus, RotateCcw, Square, TriangleAlert, Wand2, X } from 'lucide-react'
+import { ArrowRight, Check, ListChecks, Mic, Coins, Smile, ChevronLeft, ChevronRight, Clapperboard, Download, FileText, Film, ImagePlus, LoaderCircle, Plus, RotateCcw, Square, TriangleAlert, Upload, Wand2, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { AD_FORMATS, adShots, adVersions, clipSeconds, playing } from '../../shared/ads'
+import { AD_FORMATS, adShots, adVersions, playing, working } from '../../shared/ads'
 import { buildInput } from '../../shared/inputs'
-import { chatModel, ELEVEN_VOICES, withBest } from '../../shared/models'
+import { chatModel, ELEVEN_VOICES, reviewerOf, withBest } from '../../shared/models'
 import { estimate, priceLabel, USD_PER_CREDIT } from '../../shared/prices'
 import { sceneTarget } from '../../shared/timing'
-import type { Character, Episode, ReviewIssue, Scene, Series, ShotPlan, Step } from '../../shared/types'
+import type { AdResult, Character, Episode, ReviewIssue, Scene, Series, ShotPlan, Step } from '../../shared/types'
 import { Avatar } from './Characters'
 import { Media, Zoomable } from './Create'
 import { buildEpisodeProject, episodeProject, toProjectRender } from './Studio'
 import { api, errMsg, mediaUrl } from './lib'
 import {
   allTasks, castOf, clipFor, clipOf, defaultEdit, loadAll, editPrompt, elementsOf, fileOf, getSeries, img, IMAGE_MODELS, makeAll, makeOne, model, motionPrompt, needs, ready, refsOf, type Run, scenePrompt,
-  sceneRefs, setRun, speaking, stateOf, step, syncKeyOf, syncState, type Tasks, timing, toRender, updateSeries, VIDEO_MODELS, videoValues, voiceFor, voiceName,
+  sceneRefs, setRun, speaking, stateOf, step, syncKeyOf, syncState, type Tasks, timing, toRender, updateSeries, VIDEO_MODELS, videoValues, qualities, qualityOf, heightLabel, voiceFor, voiceName,
 } from './seriesStore'
 import { IconButton, SelectChip } from './ui'
 
@@ -105,7 +105,6 @@ const PLAN_FIELDS: [keyof ShotPlan, string, string][] = [
 ]
 const writerLabel = (id: string) => chatModel(id).label
 // The reviewer is a different model from the writer, so no one grades their own work.
-const reviewerOf = (writer: string) => (writer === 'gpt-6-sol' ? 'claude-sonnet-5-5' : 'gpt-6-sol')
 // A fingerprint of what the reviewer reads, so an edited script shows that its review is out of date.
 function scriptKey(scenes: Scene[]) {
   let h = 5381
@@ -127,7 +126,7 @@ function ScriptStep({ s, ep, index, cast, things, run, rk: k, setEp, go }: StepP
   const missed = (n: number) => (n ? `${n} shot${n > 1 ? 's' : ''} didn't get a plan (the writer didn't answer); press Plan ${n} shot${n > 1 ? 's' : ''} to try again.` : undefined)
   const hasMedia = ep.scenes.some((sc) => sc.frameTask || sc.videoTask || sc.lines.some((l) => l.voiceTask))
   const latest = () => getSeries(s.id).episodes.find((e) => e.id === ep.id)!
-  const reviewing = (by = writer) => `Reviewer: checking the whole ${ad ? 'ad' : 'episode'} (${writerLabel(reviewerOf(by))})…`
+  const reviewing = (by = writer) => `Reviewer: checking the whole ${ad ? 'ad' : 'episode'} (${writerLabel(reviewerOf(by, ad))})…`
 
   // Pass 3: the reviewer reads the latest script; its shot labels are saved as scene ids so they survive edits.
   // Left-out shots aren't part of the ad, so the reviewer, Improve and Revise only see the shots in it.
@@ -153,14 +152,14 @@ function ScriptStep({ s, ep, index, cast, things, run, rk: k, setEp, go }: StepP
         x.elements = [...(x.elements ?? []), ...draft.created!.filter((c) => c.kind).map((c) => c.id)]
       })
     }
-    await setEp((e) => void ((e.scenes = draft.scenes), (e.beats = draft.beats), (e.format ??= draft.format)))
+    await setEp((e) => void ((e.writtenFor = getSeries(s.id).videoModel), (e.scenes = draft.scenes), (e.beats = draft.beats), (e.format ??= draft.format), draft.textHooks?.length && (e.textHooks = draft.textHooks)))
     setRun(k, { step: `Director: planning ${draft.scenes.length} shots…` })
     const directed = await api.directScript(getSeries(s.id), index, draft.scenes)
     await setEp((e) => e.scenes.forEach((sc, i) => (sc.plan = directed.plans[i] ?? sc.plan)))
     const wrote = draft.by.split('|')[0]
     setRun(k, { step: reviewing(wrote) })
     const unreviewed = await runReview(wrote).then(() => undefined, (e) => `The reviewer didn't answer (${errMsg(e)}); press Review to try again.`)
-    const added = draft.created?.length ? `Added to this set: ${draft.created.map((c) => c.name).join(', ')} (make their ${draft.created.length > 1 ? 'images' : 'image'} before drawing).` : undefined
+    const added = draft.created?.length ? `Added to this set: ${draft.created.map((c) => c.name).join(', ')} (make an image for any that has none before drawing).` : undefined
     return notes(added, missed(directed.failed), fellBack(directed.by) ?? fellBack(draft.by), unreviewed)
   })
   // Plans for the shots that have none (written before the director pass, added later, or missed). The story stays as it is.
@@ -222,7 +221,7 @@ function ScriptStep({ s, ep, index, cast, things, run, rk: k, setEp, go }: StepP
       {ad && (
         <SelectChip title="The ad's format" label={<>Format: {AD_FORMATS.find((f) => f.id === ep.format)?.name ?? 'writer picks'}</>} value={ep.format ?? ''}
           onChange={(v) => void setEp((e) => void (e.format = v || undefined))}
-          options={[{ value: '', label: 'Writer picks' }, ...AD_FORMATS.map((f) => ({ value: f.id, label: f.name }))]} />
+          options={[{ value: '', label: 'Writer picks' }, ...AD_FORMATS.map((f) => ({ value: f.id, label: f.viral ? `Viral · ${f.name}` : f.name }))]} />
       )}
     </>
   )
@@ -676,10 +675,10 @@ function VoicesStep({ s, ep, tasks, cast, run, rk: k, setEp, go }: StepProps) {
 function costOf(s: Series, ep: Episode, t: Tasks) {
   const im = model(s.imageModel)
   const vm = model(s.videoModel)
-  const n = ep.scenes.length || (s.kind === 'ad' ? adShots(s.seconds, clipSeconds(s.videoModel)) + 3 : sceneTarget(s.seconds))
+  const n = ep.scenes.length || (s.kind === 'ad' ? adShots(s.seconds) + 3 : sceneTarget(s.seconds))
   const shots = ep.scenes.length ? playing(ep).map((sc) => ({ sc, seconds: timing(sc).seconds })) : Array.from({ length: n }, () => ({ sc: undefined, seconds: s.seconds / n }))
   const image = estimate(im.id, buildInput(im, SCENE_IMAGE, {}).input)?.hi ?? 0
-  const video = (sec: number) => estimate(vm.id, buildInput(vm, videoValues(vm, sec, !!s.videoSound), {}).input)?.hi ?? 0
+  const video = (sec: number) => estimate(vm.id, buildInput(vm, videoValues(vm, sec, !!s.videoSound, s.videoQuality), {}).input)?.hi ?? 0
   const lips = (sec: number) => estimate('lip-sync', { duration: clipFor(vm, sec) })?.hi ?? 0
   const talks = (sc?: Scene) => !sc || (sc.lines.some((l) => sc.cast.some((n) => n.trim().toLowerCase() === l.speaker.trim().toLowerCase())) && ['none', 'fail'].includes(syncState(t, sc)))
   const left: [string, number][] = [
@@ -726,16 +725,41 @@ function EpisodeCost({ s, ep, t }: { s: Series; ep: Episode; t: Tasks }) {
 
 // --- 4. Video: each approved image animated, silent by default, just long enough for its dialogue ---
 
-function VideoStep({ s, ep, tasks, run, rk: k, setEp, go }: StepProps) {
+function VideoStep({ s, ep, index, tasks, run, rk: k, setEp, go }: StepProps) {
   const vm = model(s.videoModel)
+  // The shots were planned for another video model: plan them again for this one (story, stills and voices stay).
+  // Scripts from before this was recorded were all written while new products started on Kling 3.0.
+  const writtenFor = ep.writtenFor ?? (ep.scenes.length ? 'kling-3' : undefined)
+  const planner = writtenFor && writtenFor !== s.videoModel ? (model(writtenFor)?.label ?? writtenFor) : undefined
+  const replan = () => step(k, `Director: re-planning the shots for ${vm.label}…`, async () => {
+    const shots = playing(ep).map((sc) => ({ ...sc, plan: undefined }))
+    const d = await api.directScript(getSeries(s.id), index, shots)
+    await setEp((e) => {
+      shots.forEach((sc, i) => {
+        const x = e.scenes.find((y) => y.id === sc.id)
+        const p = d.plans[i]
+        if (x && p) x.plan = { ...p, ...(!p.text && x.plan?.text && { text: x.plan.text }) }
+      })
+      if (!d.failed) e.writtenFor = s.videoModel
+    })
+    return d.failed ? `${d.failed} shot${d.failed > 1 ? 's' : ''} kept the old plan; press Re-plan again to retry.` : undefined
+  })
   const sound = !!s.videoSound
   const used = playing(ep)
   const missing = used.filter((sc) => needs(tasks, sc.videoTask))
-  const cost = (sc: Scene) => estimate(vm.id, buildInput(vm, videoValues(vm, timing(sc).seconds, sound), {}).input)?.hi ?? 0
-  const animate = (sc: Scene) => makeOne(vm.id, videoValues(vm, timing(sc).seconds, sound), [img(fileOf(tasks, sc.frameTask)!)], motionPrompt(s, sc)).then((ids) => ids[0])
+  const cost = (sc: Scene) => estimate(vm.id, buildInput(vm, videoValues(vm, timing(sc).seconds, sound, s.videoQuality), {}).input)?.hi ?? 0
+  const animate = (sc: Scene) => makeOne(vm.id, videoValues(vm, timing(sc).seconds, sound, s.videoQuality), [img(fileOf(tasks, sc.frameTask)!)], motionPrompt(s, sc)).then((ids) => ids[0])
   const animateAll = () => step(k, 'Animating scenes…', () => makeAll(k, `Animating ${missing.length} scenes…`, 'videos', missing, animate,
     (pairs) => setEp((e) => pairs.forEach(([sc, id]) => (e.scenes.find((x) => x.id === sc.id)!.videoTask = id)))))
   const done = used.every((sc) => fileOf(tasks, sc.videoTask))
+  // Real footage for a shot (the supplier's clip, or your own): anything that has to prove what the product does looks
+  // better real, and the apps label realistic AI video.
+  const picker = useRef<HTMLInputElement>(null)
+  const [footageFor, setFootageFor] = useState<string | null>(null)
+  const takeFootage = async (file: File) => {
+    const id = await api.addFootage(file.name, new Uint8Array(await file.arrayBuffer()))
+    await setEp((e) => void (e.scenes.find((x) => x.id === footageFor)!.videoTask = id))
+  }
   // Lip sync: shots where someone on screen speaks get their mouths moved to the recorded lines (narration is left alone).
   const toSync = used.filter((sc) => fileOf(tasks, sc.videoTask) && speaking(sc).length && ['none', 'fail'].includes(syncState(tasks, sc)))
   const syncCost = (sc: Scene) => estimate('lip-sync', { duration: clipFor(vm, timing(sc).seconds) })?.hi ?? 0
@@ -754,6 +778,11 @@ function VideoStep({ s, ep, tasks, run, rk: k, setEp, go }: StepProps) {
       <div className="flex flex-wrap items-center gap-2">
         <SelectChip title="Video model" label={`Video: ${vm.label}`} value={s.videoModel} onChange={(v) => void updateSeries(s.id, (x) => void (x.videoModel = v))}
           options={VIDEO_MODELS.map((id) => ({ value: id, label: withBest(model(id).label, id) }))} />
+        {qualities(vm).length > 1 && (
+          <SelectChip title="Video quality: higher costs more per second" label={`Quality: ${heightLabel(qualityOf(vm, s.videoQuality)!.height)}`}
+            value={String(qualityOf(vm, s.videoQuality)!.height)} onChange={(v) => void updateSeries(s.id, (x) => void (x.videoQuality = Number(v)))}
+            options={qualities(vm).map((q) => ({ value: String(q.height), label: heightLabel(q.height) }))} />
+        )}
         <button type="button" aria-pressed={sound} onClick={() => void updateSeries(s.id, (x) => void (x.videoSound = !sound))}
           title="Off: videos are made silent and only your script's voices are heard. On: the video model adds its own sound (ambience), kept quiet under the voices."
           className={`h-8 rounded-full border px-3 text-[13px] ${sound ? 'border-fg bg-raised' : 'border-line text-muted hover:bg-raised'}`}>
@@ -771,6 +800,19 @@ function VideoStep({ s, ep, tasks, run, rk: k, setEp, go }: StepProps) {
           </button>
         )}
       </div>
+      {planner && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-raised px-3 py-2 text-[13px]">
+          <TriangleAlert size={14} className="shrink-0 text-muted" />
+          <span className="min-w-0 flex-1">The script and shot plans were written for {planner}. Re-plan them for {vm.label} so every shot suits what it does well; the story, stills and voices stay.</span>
+          <button type="button" disabled={busy(run)} onClick={replan} className={secondary}>Re-plan for {vm.label}</button>
+          <button type="button" className="text-muted underline underline-offset-2" onClick={() => void setEp((e) => void (e.writtenFor = s.videoModel))}>Keep as is</button>
+        </div>
+      )}
+      <input ref={picker} type="file" accept="video/*" hidden onChange={(e) => {
+        const file = e.target.files?.[0]
+        e.target.value = ''
+        if (file && footageFor) void takeFootage(file)
+      }} />
       <div className="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] gap-2">
         {used.map((sc, i) => {
           const v = clipOf(tasks, sc)
@@ -793,8 +835,11 @@ function VideoStep({ s, ep, tasks, run, rk: k, setEp, go }: StepProps) {
               <div className="flex items-center text-[11px] text-muted tabular-nums">
                 <span title="Scene length (from the voices) · clip the model makes">{fmt(timing(sc).seconds)} · {clipFor(vm, timing(sc).seconds)} s clip</span>
                 {st === 'fail' && <span className="ml-1 truncate text-danger" title={tasks[sc.videoTask!]?.error}>failed</span>}
+                {tasks[sc.videoTask ?? '']?.modelId === 'footage' && <span className="ml-1 truncate">· yours</span>}
+                <IconButton title="Use your own footage for this shot (the supplier's clip, or one you filmed)" className="ml-auto size-6" disabled={busy(run)}
+                  onClick={() => (setFootageFor(sc.id), picker.current?.click())}><Upload size={12} /></IconButton>
                 {(v || st === 'fail') && (
-                  <IconButton title="Animate again" className="ml-auto size-6" disabled={busy(run)} onClick={() => setEp((e) => void (e.scenes.find((x) => x.id === sc.id)!.videoTask = undefined))}>
+                  <IconButton title={tasks[sc.videoTask ?? '']?.modelId === 'footage' ? 'Remove your footage' : 'Animate again'} className="size-6" disabled={busy(run)} onClick={() => setEp((e) => void (e.scenes.find((x) => x.id === sc.id)!.videoTask = undefined))}>
                     <RotateCcw size={12} />
                   </IconButton>
                 )}
@@ -913,7 +958,7 @@ function AdCutStep({ s, ep, tasks, run, rk: k, setEp, onEdit }: StepProps) {
       e.adCuts = files
       e.cut = files[0]
     })
-    return files.length > 1 ? `Done: ${files.length} versions, one per hook. Post them a day or two apart and keep the hook that holds viewers longest.` : 'Done.'
+    return `Done${files.length > 1 ? `: ${files.length} versions, one per hook` : ''}. Post on TikTok, Reels and Shorts with the AI label on and a trending sound from the app; after about 48 hours, add how each did below.`
   })
   // The versions made here, and the editor's export if it's newer than them.
   const made = [...(ep.adCuts ?? []), ...(ep.cut && !ep.adCuts?.includes(ep.cut) ? [ep.cut] : [])]
@@ -957,7 +1002,42 @@ function AdCutStep({ s, ep, tasks, run, rk: k, setEp, onEdit }: StepProps) {
           })}
         </div>
       )}
+      <Results ep={ep} setEp={setEp} versions={[...versions.map((v) => (v.hook ? `Hook ${v.hook}${v.scenes[0].plan?.text ? `: ${v.scenes[0].plan.text}` : ''}` : 'The ad')), ...(ep.textHooks ?? []).map((t) => `Text: ${t}`)]} />
     </>
+  )
+}
+
+// How each posted version did after about 48 hours. The sellers' test: about 1,000 views and a few "where do I buy"
+// comments means it's working; otherwise move on. "Plan 3 more ads" reads these and builds on what worked.
+const PLATFORMS: AdResult['platform'][] = ['TikTok', 'Instagram', 'Facebook', 'YouTube']
+function Results({ ep, setEp, versions }: { ep: Episode; setEp: StepProps['setEp']; versions: string[] }) {
+  const [draft, setDraft] = useState({ platform: PLATFORMS[0], version: versions[0] ?? 'The ad', views: '', asks: '' })
+  const add = () => void setEp((e) => void (e.results = [...(e.results ?? []), { id: crypto.randomUUID(), at: Date.now(), platform: draft.platform, version: draft.version, views: +draft.views || 0, asks: +draft.asks || 0 }]))
+    .then(() => setDraft((d) => ({ ...d, views: '', asks: '' })))
+  const input = 'h-8 rounded-lg border border-line bg-bg px-2 text-[13px] focus:border-fg'
+  return (
+    <div className="flex flex-col gap-2 border-t border-line pt-4">
+      <span className="text-[13px] font-medium">How it did <span className="font-normal text-muted">· after about 48 hours. About 1,000 views and a few “where do I buy” comments means it’s working.</span></span>
+      {(ep.results ?? []).map((r) => (
+        <div key={r.id} className="flex items-center gap-2 text-[13px] tabular-nums">
+          <span className={`w-20 shrink-0 font-medium ${working(r) ? '' : 'text-muted'}`}>{working(r) ? 'Working' : 'Move on'}</span>
+          <span className="min-w-0 flex-1 truncate">{r.version} · {r.platform}</span>
+          <span className="shrink-0 text-muted">{r.views.toLocaleString()} views · {r.asks} asking</span>
+          <IconButton title="Remove" className="size-6" onClick={() => void setEp((e) => void (e.results = (e.results ?? []).filter((x) => x.id !== r.id)))}><X size={12} /></IconButton>
+        </div>
+      ))}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <select aria-label="Version" value={draft.version} onChange={(e) => setDraft({ ...draft, version: e.target.value })} className={`${input} min-w-0 max-w-72 flex-1`}>
+          {versions.map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+        <select aria-label="Platform" value={draft.platform} onChange={(e) => setDraft({ ...draft, platform: e.target.value as AdResult['platform'] })} className={input}>
+          {PLATFORMS.map((p) => <option key={p}>{p}</option>)}
+        </select>
+        <input aria-label="Views" type="number" min={0} placeholder="Views" value={draft.views} onChange={(e) => setDraft({ ...draft, views: e.target.value })} className={`${input} w-24`} />
+        <input aria-label="Where do I buy comments" type="number" min={0} placeholder="“Where to buy”" value={draft.asks} onChange={(e) => setDraft({ ...draft, asks: e.target.value })} className={`${input} w-32`} />
+        <button type="button" disabled={!draft.views} onClick={add} className={secondary}><Plus size={13} /> Add</button>
+      </div>
+    </div>
   )
 }
 
@@ -1015,7 +1095,7 @@ function Summary({ s, ep, index, setEp }: { s: Series; ep: Episode; index: numbe
         {before !== null && !busy && (
           <button type="button" onClick={() => (void setEp((x) => void (x.summary = before)), setBefore(null))} className="text-xs text-muted underline underline-offset-2 hover:text-fg">Undo</button>
         )}
-        <button type="button" disabled={busy} onClick={improve} title="Rewrite with GPT 6 Sol from the story bible: a short idea becomes hook, turn and punchline; a detailed script keeps every line and is tidied into beats"
+        <button type="button" disabled={busy} onClick={improve} title="Rewrite with the writer from the story bible: a short idea becomes hook, turn and punchline; a detailed script keeps every line and is tidied into beats"
           className="inline-flex h-7 items-center gap-1 rounded-full border border-line bg-surface px-2.5 text-xs text-muted hover:text-fg disabled:opacity-40">
           {busy ? <LoaderCircle size={12} className="animate-spin" /> : <Wand2 size={12} />} Improve
         </button>

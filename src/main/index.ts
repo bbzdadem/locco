@@ -1,5 +1,5 @@
 import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, nativeTheme, protocol, safeStorage, session, shell, systemPreferences } from 'electron'
-import { createReadStream } from 'node:fs'
+import { createReadStream, existsSync } from 'node:fs'
 import { copyFile, stat, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { Readable } from 'node:stream'
@@ -10,14 +10,15 @@ import {
   renameChat, runCall, saveProject, searchChats, send, stopChat,
 } from './chat'
 import { dirs, getSetting, openDb, setSetting, usage } from './db'
-import { deleteProject as deleteEdit, listProjects as listEdits, renderProject, saveProject as saveEdit, thumb, wordsIn } from './editor'
+import { cover, deleteProject as deleteEdit, extractSound, getVersion, listProjects as listEdits, listVersions, renderProject, saveProject as saveEdit, saveVersion, sound, SOUNDS, thumb, waveform, wordsIn } from './editor'
 import { addVoice, allVoices, hasElevenKey, setElevenKey } from './eleven'
+import { checkClaudeKey, hasClaudeKey, setClaudeKey } from './claude'
 import { credits, setKey } from './kie'
 import { mimeOf, pathOf, saveUpload } from './media'
 import {
   deleteCharacter, deletedSeries, deleteSeries, listCharacters, listSeries, mediaSeconds, render, restoreSeries, reviseScript, saveCharacter, saveSeries,
   directScript, improveScene, improveSummary, writeRecap, writeScript, planAds, reviewScript, voiceTrack, writeAds, writeSeries } from './series'
-import { generate, listTasks, removeTask, starTask, startPoller, transcribe } from './tasks'
+import { addFootage, generate, listTasks, removeTask, starTask, startPoller, transcribe } from './tasks'
 
 let win: BrowserWindow | null = null
 let keySource: Settings['keySource'] = null
@@ -36,6 +37,11 @@ async function loadElevenKey() {
     setElevenKey(await decrypt(saved))
     void allVoices().then(setElevenVoices, () => {})
   } catch {} // Keychain refused: paste the key again in Settings.
+}
+
+async function loadClaudeKey() {
+  const saved = getSetting('claudeKey')
+  if (saved) try { setClaudeKey(await decrypt(saved)) } catch {} // Keychain refused: paste the key again in Settings.
 }
 
 async function loadKey() {
@@ -65,6 +71,7 @@ const settings = (): Settings => ({
   model: chatModel(getSetting('model')).id,
   agentBudget: Number(getSetting('agentBudget')) || 2,
   hasEleven: hasElevenKey(),
+  hasClaude: hasClaudeKey(),
   elevenVoices: ELEVEN_VOICES.length,
 })
 
@@ -103,6 +110,7 @@ app.whenReady().then(async () => {
   openDb(app.getPath('userData'))
   await loadKey()
   await loadElevenKey()
+  await loadClaudeKey()
 
   protocol.handle('locco', async (req) => {
     const { host, pathname } = new URL(req.url)
@@ -125,13 +133,19 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('settings:get', settings)
-  ipcMain.handle('settings:set', async (_e, s: { apiKey?: string; elevenKey?: string; about?: string; model?: string; agentBudget?: number }) => {
+  ipcMain.handle('settings:set', async (_e, s: { apiKey?: string; elevenKey?: string; claudeKey?: string | null; about?: string; model?: string; agentBudget?: number }) => {
     if (s.elevenKey?.trim()) {
       const k = s.elevenKey.trim()
       const list = await allVoices(k) // throws a readable error if ElevenLabs refuses the key, before anything is saved
       setElevenKey(k)
       setElevenVoices(list)
       setSetting('elevenKey', await encrypt(k))
+    }
+    if (s.claudeKey === null) (setClaudeKey(''), setSetting('claudeKey', ''))
+    else if (s.claudeKey?.trim()) {
+      await checkClaudeKey(s.claudeKey)
+      setClaudeKey(s.claudeKey)
+      setSetting('claudeKey', await encrypt(s.claudeKey.trim()))
     }
     if (s.apiKey !== undefined) {
       const k = s.apiKey.trim()
@@ -180,8 +194,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('series:restore', (_e, id: string) => restoreSeries(id))
   ipcMain.handle('series:write', (_e, idea: string, episodes: number, seconds: number, cast: string[], style?: { text?: string; refs?: Attachment[] }, elements?: string[]) =>
     writeSeries(idea, episodes, seconds, cast, style, elements))
-  ipcMain.handle('ads:write', (_e, product: { description: string; photos: Attachment[]; id?: string }, ads: number, seconds: number, cast: string[], elements: string[]) =>
-    writeAds(product, ads, seconds, cast, elements))
+  ipcMain.handle('ads:write', (_e, product: { description: string; photos: Attachment[]; id?: string }, ads: number, seconds: number, cast: string[], elements: string[], viral?: boolean, videoModel?: string) =>
+    writeAds(product, ads, seconds, cast, elements, viral, videoModel))
   ipcMain.handle('ads:plan', (_e, s: Series, count: number) => planAds(s, count))
   ipcMain.handle('series:script', (_e, s: Series, index: number) => writeScript(s, index))
   ipcMain.handle('series:direct', (_e, s: Series, index: number, scenes: Scene[]) => directScript(s, index, scenes))
@@ -202,6 +216,14 @@ app.whenReady().then(async () => {
   ipcMain.handle('edits:delete', (_e, id: string) => deleteEdit(id))
   ipcMain.handle('edits:render', (_e, req: ProjectRender) => renderProject(req))
   ipcMain.handle('edits:words', (_e, ref: Ref, from: number, to: number) => wordsIn(ref, from, to))
+  ipcMain.handle('edits:waveform', (_e, ref: Ref) => waveform(ref))
+  ipcMain.handle('edits:extractSound', (_e, ref: Ref, from: number, to: number, speed: number, reverse: boolean) => extractSound(ref, from, to, speed, reverse))
+  ipcMain.handle('edits:versions', (_e, id: string) => listVersions(id))
+  ipcMain.handle('edits:version', (_e, id: string) => getVersion(id))
+  ipcMain.handle('edits:saveVersion', (_e, p: EditProject, label: string) => saveVersion(p, label))
+  ipcMain.handle('edits:sounds', () => Object.entries(SOUNDS).map(([id, x]) => ({ id, label: x.label })))
+  ipcMain.handle('edits:sound', (_e, name: string) => sound(name))
+  ipcMain.handle('edits:cover', (_e, file: string, t: number) => cover(file, t))
   ipcMain.handle('chat:send', (_e, req: SendRequest) => send(req, emit))
   ipcMain.handle('chat:regenerate', (_e, id: string, model: string, thinking: boolean, agent: boolean) => regenerate(id, model, thinking, agent, emit))
   ipcMain.handle('chat:stop', (_e, id: string) => void stopChat(id))
@@ -210,6 +232,8 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('files:save', (_e, name: string, mime: string, bytes: Uint8Array) => saveUpload(name, mime, bytes))
   ipcMain.handle('files:reveal', (_e, ref: Ref) => shell.showItemInFolder(pathOf(ref)))
+  // Which of these files are gone (moved to the Trash, say), as kind/file.
+  ipcMain.handle('files:missing', (_e, refs: Ref[]) => refs.filter((r) => !existsSync(pathOf(r))).map((r) => `${r.kind}/${r.file}`))
   ipcMain.handle('files:saveAs', async (_e, ref: Ref) => {
     if (!win) return
     const { canceled, filePath } = await dialog.showSaveDialog(win, { defaultPath: join(app.getPath('downloads'), ref.file) })
@@ -220,6 +244,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('tasks:list', listTasks)
   ipcMain.handle('tasks:generate', (_e, req: GenerateRequest) => generate(req))
   ipcMain.handle('tasks:star', (_e, id: string, on: boolean) => starTask(id, on))
+  ipcMain.handle('tasks:footage', (_e, name: string, bytes: Uint8Array) => addFootage(name, bytes))
   ipcMain.handle('create:enhance', (_e, prompt: string, kind: MediaKind, modelLabel: string) => enhancePrompt(prompt, kind, modelLabel))
   ipcMain.handle('audio:transcribe', (_e, recording: Ref) => transcribe(recording))
   // The microphone is only used while you hold dictation open; macOS asks once.

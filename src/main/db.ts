@@ -30,6 +30,7 @@ export function openDb(root: string) {
     CREATE TABLE IF NOT EXISTS series (id TEXT PRIMARY KEY, data TEXT, updated_at INTEGER);
     CREATE TABLE IF NOT EXISTS characters (id TEXT PRIMARY KEY, data TEXT, updated_at INTEGER);
     CREATE TABLE IF NOT EXISTS edits (id TEXT PRIMARY KEY, data TEXT, updated_at INTEGER);
+    CREATE TABLE IF NOT EXISTS edit_versions (id TEXT PRIMARY KEY, edit_id TEXT, at INTEGER, label TEXT, data TEXT);
   `)
   // Columns added after the first release.
   const addColumn = (table: string, col: string, type: string) => {

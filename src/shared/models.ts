@@ -10,6 +10,9 @@ export const CHAT_MODELS = [
 ] as const
 export type ChatModel = (typeof CHAT_MODELS)[number]
 export const chatModel = (id?: string): ChatModel => CHAT_MODELS.find((m) => m.id === id) ?? CHAT_MODELS[0]
+// Who reviews a script: Claude Opus 5.5 for ads; for a series, the other model from the writer, so no one grades their own
+// work. Without a Claude key (or when it fails) GPT 6 Sol steps in.
+export const reviewerOf = (writer: string, ad = false) => (ad ? 'claude-opus-5-5' : writer === 'gpt-6-sol' ? 'claude-sonnet-5-5' : 'gpt-6-sol')
 
 // ElevenLabs runs on the user's own ElevenLabs key (src/main/eleven.ts), not through kie. Ids start with "el-".
 export const isEleven = (id: string) => id.startsWith('el-')
@@ -74,7 +77,7 @@ export const kindOf = (modelId: string): MediaKind => MEDIA_MODELS.find((m) => m
 export const BEST_FOR: Record<string, string> = {
   'gpt-6-sol': 'Best all-rounder; reads images and PDFs',
   'gemini-3-8-flash-openai': 'Fast and cheap; reads images',
-  'claude-sonnet-5-5': "Writing and code; can't see files on kie",
+  'claude-sonnet-5-5': 'Writing and code; needs your Claude key',
   'claude-opus-5-5': 'Hardest problems; slower',
   'claude-haiku-5-5': 'Quick, short answers',
 
@@ -109,26 +112,19 @@ export const BEST_FOR: Record<string, string> = {
 
   'kling-3': 'Cinematic people and motion, with sound',
   'kling-3-turbo': 'Faster, cheaper Kling 3.0',
-  'kling-3-omni': 'All-in-one Kling: text, images, sound',
+  'kling-3-omni': 'Kling 3.0 from text, or start and end frames',
   'kling-4-keyframes': 'Exact start, middle and end frames',
   'kling-4-reference': 'Same characters or products from references',
   'kling-4-flash-keyframes': 'Cheaper keyframe control',
   'kling-4-flash-reference': 'Cheaper video from references',
   'kling-2-6': 'Reliable motion with sound, lower cost',
-  'kling-2-5-turbo': 'Fast start-to-end transitions',
   'veo-3-1': 'Most realistic, with dialogue and sound',
   'seedance-2': 'Multi-shot scenes from references, with sound',
   'seedance-2-fast': 'Faster, cheaper Seedance 2.0 with sound',
   'seedance-2-mini': 'Cheapest Seedance drafts',
   'seedance-2-5': 'Newest Seedance: references and sound',
-  'seedance-1-pro': 'Older Seedance, smooth camera moves',
-  'seedance-1-lite': 'Cheap image-to-video with an end frame',
   'hailuo-2-3-pro': 'Dynamic action and physics from an image',
   'hailuo-2-3': 'Cheaper Hailuo action from an image',
-  'hailuo-02-pro': 'Physics-heavy motion, start and end frames',
-  'wan-2-7': 'Start-to-end animation, good value',
-  'wan-2-6': 'Good-value text or image to video',
-  'wan-2-6-flash': 'Fast image-to-video with sound',
   'wan-3': 'Newest Wan: references, frames, sound',
   'wan-3-prime': 'Higher-quality Wan 3.0',
   'grok-imagine': 'Cheap quick drafts with sound',
@@ -140,7 +136,13 @@ export const BEST_FOR: Record<string, string> = {
   'happyhorse-1-1': 'Text or image to video',
   'happyhorse-1-1-reference': 'Video from a reference image',
   'gemini-omni-video': 'Google video with sound, from text',
-  'gemini-omni-flash': 'Fast Google video, start and end frames',
+  'gemini-omni-flash': 'Cheap Google video: frames or up to 6 references',
+  'kling-3-omni-reference': 'Kling quality with your product or people from photos',
+  'minimax-h3-reference': 'Cheapest way to keep a product or person from photos',
+  'kling-motion': 'Your character copies the moves in a video (trends, gestures)',
+  'kling-avatar': 'A photo talks to camera with your voice track',
+  'kling-avatar-pro': 'Talking photo at 1080p, more natural',
+  'omnihuman-2': 'Talking photo with body motion, from a voice track',
   'vidu-q4': 'Anime and stylised animation, with sound',
   'vidu-q4-reference': 'Same subjects from several references',
 

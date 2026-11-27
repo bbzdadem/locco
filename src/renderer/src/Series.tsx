@@ -1,11 +1,12 @@
-import { ArrowLeft, Check, Film, ImagePlus, LoaderCircle, Megaphone, Plus, Trash2, Undo2, X } from 'lucide-react'
+import { ArrowLeft, Check, Copy, Film, Flame, ImagePlus, LoaderCircle, Megaphone, Plus, Repeat2, Trash2, Undo2, X } from 'lucide-react'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { Attachment, Character, Episode, Series } from '../../shared/types'
 import { Avatar, CharacterBuilder, CharacterLibrary } from './Characters'
 import { EpisodeView } from './Episode'
 import { ACCEPT_IMAGES, api, errMsg, mediaUrl, toAttachments } from './lib'
-import { fileOf, getSnapshot, loadAll, ready, type Run, saveChar, STYLE_PRESETS, subscribe, type Tasks, updateSeries, voiceName } from './seriesStore'
+import { fileOf, getSnapshot, loadAll, model, ready, type Run, saveChar, STYLE_PRESETS, subscribe, type Tasks, updateSeries, VIDEO_MODELS, voiceName } from './seriesStore'
 import { Header, IconButton, SelectChip } from './ui'
+import { withBest } from '../../shared/models'
 
 type HeaderProps = { collapsed: boolean; onExpand: () => void }
 const field = 'w-full rounded-lg border border-line bg-bg px-2.5 py-1.5 text-[13px] leading-relaxed focus:border-fg'
@@ -96,6 +97,8 @@ function SeriesHome({ ads, list, characters, tasks, justDeleted, onUndone, onOpe
   const [deleted, setDeleted] = useState<{ series: Series; deletedAt: number }[]>([])
   useEffect(() => void api.deletedSeries().then((d) => setDeleted(d.filter((x) => (x.series.kind === 'ad') === ads))), [list, ads])
   const restore = (id: string) => api.restoreSeries(id).then(loadAll).then(onUndone)
+  const [removing, setRemoving] = useState<string>()
+  const remove = (id: string) => api.deleteSeries(id).then(loadAll).then(() => setRemoving(undefined))
   async function write() {
     if (!idea.trim() || busy) return
     setBusy(true)
@@ -126,7 +129,7 @@ function SeriesHome({ ads, list, characters, tasks, justDeleted, onUndone, onOpe
           placeholder="Your series idea: who it's about, the world, the tone. Two baristas in Baku and an espresso machine that grants wishes, deadpan comedy."
           className="resize-none bg-transparent px-1 text-[15px] leading-relaxed placeholder:text-faint" />
         <div className="flex flex-col gap-1.5 px-1">
-          <span className="text-xs text-muted">Cast from your Characters (optional; anyone else the story needs is created and saved to Characters)</span>
+          <span className="text-xs text-muted">Cast from your Characters (optional; the writer picks from your saved characters and places first, and only creates someone new when none fits)</span>
           <div className="flex flex-wrap gap-1.5">
             {characters.filter((c) => !c.kind).map((c) => {
               const on = cast.includes(c.id)
@@ -173,7 +176,7 @@ function SeriesHome({ ads, list, characters, tasks, justDeleted, onUndone, onOpe
             {busy ? <LoaderCircle size={15} className="animate-spin" /> : <Film size={15} />} {busy ? 'Writing…' : 'Write the story bible'}
           </button>
         </div>
-        <p className="px-1 text-xs text-faint">GPT 6 Sol writes the premise, the look, the rules of the world and the episode list (a few cents). Each episode then goes step by step, and you approve the script and the scenes before any video is made.</p>
+        <p className="px-1 text-xs text-faint">Claude Sonnet 5.5 writes the premise, the look, the rules of the world and the episode list (a few cents). Each episode then goes step by step, and you approve the script and the scenes before any video is made.</p>
         {error && <p className="px-1 text-[13px] text-danger">{error}</p>}
       </div>
       )}
@@ -181,7 +184,8 @@ function SeriesHome({ ads, list, characters, tasks, justDeleted, onUndone, onOpe
         <div className="flex flex-col gap-1">
           <h2 className="mb-1 font-medium">{ads ? 'Your products' : 'Your series'}</h2>
           {list.map((s) => (
-            <button key={s.id} type="button" onClick={() => onOpen(s.id)} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-raised">
+            <div key={s.id} className="group flex items-center gap-2 rounded-xl pr-2 hover:bg-raised">
+            <button type="button" onClick={() => onOpen(s.id)} className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 text-left">
               <span className="flex -space-x-2">{(ads ? [s.product ?? ''] : s.cast.slice(0, 4)).map((id) => <Avatar key={id} c={characters.find((c) => c.id === id)} t={tasks} size="size-8" />)}</span>
               <span className="flex min-w-0 flex-col">
                 <span className="font-medium">{s.title}</span>
@@ -189,6 +193,16 @@ function SeriesHome({ ads, list, characters, tasks, justDeleted, onUndone, onOpe
                 <span className="text-xs text-faint">{s.episodes.filter((e) => e.cut).length} of {s.episodes.length} {ads ? 'ads' : 'episodes'} finished</span>
               </span>
             </button>
+            {removing === s.id ? (
+              <span className="flex shrink-0 items-center gap-1 text-[13px]">
+                <button type="button" onClick={() => remove(s.id)} className="h-8 rounded-full bg-inverse px-3 font-medium text-on-inverse">Delete</button>
+                <button type="button" onClick={() => setRemoving(undefined)} className="h-8 rounded-full px-3 hover:bg-surface">Keep</button>
+              </span>
+            ) : (
+              <IconButton title={ads ? 'Delete this product and its ads (restore within 30 days)' : 'Delete this series (restore within 30 days)'} className="size-8 shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                onClick={() => setRemoving(s.id)}><Trash2 size={15} /></IconButton>
+            )}
+            </div>
           ))}
         </div>
       )}
@@ -225,6 +239,9 @@ function AdsForm({ characters, tasks, onOpen, onCharacter }: { characters: Chara
   const [seconds, setSeconds] = useState('15')
   const [cast, setCast] = useState<string[]>([])
   const [elementIds, setElementIds] = useState<string[]>([])
+  const [viral, setViral] = useState(false)
+  // The video model is chosen up front: the writer and director plan every shot for what it does well.
+  const [videoModel, setVideoModel] = useState('kling-3')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const picker = useRef<HTMLInputElement>(null)
@@ -241,7 +258,7 @@ function AdsForm({ characters, tasks, onOpen, onCharacter }: { characters: Chara
     setBusy(true)
     setError('')
     try {
-      const { series } = await api.writeAds({ description: description.trim(), photos: chosen ? [] : photos, id: chosen?.id }, Number(ads), Number(seconds), cast, elementIds)
+      const { series } = await api.writeAds({ description: description.trim(), photos: chosen ? [] : photos, id: chosen?.id }, Number(ads), Number(seconds), cast, elementIds, viral, videoModel)
       await api.saveSeries(series)
       await loadAll()
       onOpen(series.id)
@@ -252,23 +269,39 @@ function AdsForm({ characters, tasks, onOpen, onCharacter }: { characters: Chara
       setBusy(false)
     }
   }
-  const chips = (kind: 'people' | 'places', on: string[], setOn: (ids: string[]) => void) => (
-    <div className="flex flex-wrap gap-1.5">
-      {characters.filter((c) => (kind === 'people' ? !c.kind : c.kind === 'element' && c.category !== 'product')).map((c) => {
-        const picked = on.includes(c.id)
-        return (
-          <button key={c.id} type="button" aria-pressed={picked} onClick={() => setOn(picked ? on.filter((x) => x !== c.id) : [...on, c.id])}
-            className={`inline-flex h-8 items-center gap-1.5 rounded-full border pr-3 pl-1 text-[13px] ${picked ? 'border-fg bg-raised' : 'border-line text-muted hover:bg-raised'}`}>
-            <Avatar c={c} t={tasks} size="size-6" /> {c.name || 'Unnamed'} {picked && <Check size={12} />}
-          </button>
-        )
-      })}
-      <button type="button" onClick={() => newCharacter((id) => (setOn([...on, id]), onCharacter(id)), kind === 'places')}
-        className="inline-flex h-8 items-center gap-1 rounded-full border border-dashed border-line px-3 text-[13px] text-muted hover:text-fg">
-        <Plus size={13} /> {kind === 'people' ? 'New person' : 'New place'}
+  // One row each (picked first); See more opens all of them in a popup.
+  const [more, setMore] = useState<'people' | 'places' | null>(null)
+  const pool = (kind: 'people' | 'places') => characters.filter((c) => (kind === 'people' ? !c.kind : c.kind === 'element' && c.category !== 'product'))
+  const picks = (kind: 'people' | 'places') => (kind === 'people' ? [cast, setCast] as const : [elementIds, setElementIds] as const)
+  const chip = (c: Character, kind: 'people' | 'places') => {
+    const [on, setOn] = picks(kind)
+    const picked = on.includes(c.id)
+    return (
+      <button key={c.id} type="button" aria-pressed={picked} onClick={() => setOn(picked ? on.filter((x) => x !== c.id) : [...on, c.id])}
+        className={`inline-flex h-8 items-center gap-1.5 rounded-full border pr-3 pl-1 text-[13px] ${picked ? 'border-fg bg-raised' : 'border-line text-muted hover:bg-raised'}`}>
+        <Avatar c={c} t={tasks} size="size-6" /> {c.name || 'Unnamed'} {picked && <Check size={12} />}
       </button>
-    </div>
-  )
+    )
+  }
+  const chips = (kind: 'people' | 'places') => {
+    const [on, setOn] = picks(kind)
+    const all = pool(kind)
+    const sorted = [...all.filter((c) => on.includes(c.id)), ...all.filter((c) => !on.includes(c.id))]
+    return (
+      <div className="flex items-start gap-1.5">
+        <div className="flex h-8 min-w-0 flex-1 flex-wrap gap-1.5 overflow-hidden">{sorted.map((c) => chip(c, kind))}</div>
+        {all.length > 0 && (
+          <button type="button" onClick={() => setMore(kind)} className="inline-flex h-8 shrink-0 items-center rounded-full border border-line px-3 text-[13px] text-muted hover:bg-raised hover:text-fg">
+            See more{on.length ? ` · ${on.length} picked` : ''}
+          </button>
+        )}
+        <button type="button" title={kind === 'people' ? 'New person' : 'New place'} onClick={() => newCharacter((id) => (setOn([...on, id]), onCharacter(id)), kind === 'places')}
+          className="inline-flex h-8 shrink-0 items-center gap-1 rounded-full border border-dashed border-line px-3 text-[13px] text-muted hover:text-fg">
+          <Plus size={13} /> New
+        </button>
+      </div>
+    )
+  }
   return (
     <div className="flex flex-col gap-3 rounded-3xl border border-line bg-surface p-4 shadow-[0_2px_12px_rgba(0,0,0,0.04)]"
       onDragOver={(e) => e.preventDefault()} onDrop={(e) => (e.preventDefault(), void addPhotos(e.dataTransfer.files))}>
@@ -325,26 +358,46 @@ function AdsForm({ characters, tasks, onOpen, onCharacter }: { characters: Chara
           className="min-w-0 flex-1 resize-none bg-transparent px-1 text-[15px] leading-relaxed placeholder:text-faint" />
       </div>
       <div className="flex flex-col gap-1.5 px-1">
-        <span className="text-xs text-muted">People from your Characters (optional; the writer adds a presenter or someone reacting if the ads need one)</span>
-        {chips('people', cast, setCast)}
+        <span className="text-xs text-muted">People from your Characters (optional; the writer picks from your saved people and places first, and only creates someone new when none fits)</span>
+        {chips('people')}
       </div>
       <div className="flex flex-col gap-1.5 px-1">
         <span className="text-xs text-muted">Places and props from your Elements (optional: the kitchen, the car)</span>
-        {chips('places', elementIds, setElementIds)}
+        {chips('places')}
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
         <SelectChip title="Ads" label={`${ads} ads`} value={ads} onChange={setAds} options={['3', '5', '8'].map((n) => ({ value: n, label: `${n} ads` }))} />
         <SelectChip title="Ad length" label={`${seconds} s each`} value={seconds} onChange={setSeconds} options={['15', '20', '30'].map((n) => ({ value: n, label: `${n} seconds` }))} />
+        <button type="button" aria-pressed={viral} onClick={() => setViral(!viral)}
+          title="Viral on: the ads open on an absurd or surprising hook and use only the viral formats (comic disaster, fake danger, kid and stranger reactions, revenge, countdown and more)"
+          className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[13px] ${viral ? 'border-fg bg-raised text-fg' : 'border-line text-muted hover:bg-raised'}`}>
+          <Flame size={13} /> Viral {viral ? 'on' : 'off'}
+        </button>
+        <SelectChip title="Video model: the shots are written for what it does well (you can still switch later)" label={`Video: ${model(videoModel).label}`} value={videoModel} onChange={setVideoModel}
+          options={VIDEO_MODELS.map((id) => ({ value: id, label: withBest(model(id).label, id) }))} />
         <span className="text-xs text-faint">9:16 · 3 hooks per ad</span>
         <button type="button" disabled={(!description.trim() && !chosen) || busy} onClick={write} className="ml-auto inline-flex h-9 items-center gap-2 rounded-full bg-inverse px-4 font-medium text-on-inverse disabled:opacity-35">
           {busy ? <LoaderCircle size={15} className="animate-spin" /> : <Megaphone size={15} />} {busy ? 'Writing…' : 'Write the product brief'}
         </button>
       </div>
       <p className="px-1 text-xs text-faint">
-        GPT 6 Sol reads the photo and the description and writes the brief (buyer, problem, the moment it works, what not to claim) and a plan of ads, each in a
+        Claude Sonnet 5.5 reads the photo and the description and writes the brief (buyer, problem, the moment it works, what not to claim) and a plan of ads, each in a
         different format: problem → fix, unboxing, before / after, reaction, satisfying and more. Each ad gets three hooks and is made as one video per hook, so you can see which one holds viewers.
       </p>
       {error && <p className="px-1 text-[13px] text-danger">{error}</p>}
+      {more && (
+        <div role="dialog" aria-label={more === 'people' ? 'People' : 'Places and props'} className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6 backdrop-blur-sm"
+          onMouseDown={() => setMore(null)} onKeyDown={(e) => e.key === 'Escape' && setMore(null)}>
+          <div onMouseDown={(e) => e.stopPropagation()} className="flex max-h-full w-full max-w-[720px] flex-col gap-4 overflow-y-auto rounded-2xl border border-line bg-surface p-6 shadow-2xl">
+            <div className="flex items-center gap-3">
+              <h2 className="flex-1 text-lg font-semibold">{more === 'people' ? 'People from your Characters' : 'Places and props from your Elements'}</h2>
+              <IconButton title="Close" onClick={() => setMore(null)}><X size={18} /></IconButton>
+            </div>
+            <div className="flex flex-wrap gap-1.5">{pool(more).map((c) => chip(c, more))}</div>
+            <button type="button" autoFocus onClick={() => setMore(null)} className="ml-auto h-9 rounded-full bg-inverse px-4 font-medium text-on-inverse">Done</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -396,6 +449,28 @@ function SeriesEditor({ header, s, characters, tasks, runs, onBack, onDeleted, o
     }
   }
   const set = (fn: (x: Series) => void) => void updateSeries(s.id, fn)
+  // Swaps a person or place for another saved one: in the set, and by name in every brief, script and shot plan.
+  // Shots already drawn keep the old picture until they're drawn again.
+  const replace = (from: Character, toId: string, list: 'cast' | 'elements') => {
+    const to = characters.find((c) => c.id === toId)
+    if (!to) return
+    set((x) => {
+      const ids = list === 'cast' ? x.cast : (x.elements ??= [])
+      const i = ids.indexOf(from.id)
+      if (i >= 0) ids.splice(i, 1, ...(ids.includes(to.id) ? [] : [to.id]))
+      const name = from.name.trim()
+      if (!name || name === to.name.trim()) return
+      const whole = (n: string) => new RegExp(`(?<![\\p{L}\\p{N}])${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])`, 'gu')
+      const re = whole(name)
+      // Other saved names that contain this one (Dad's Workshop when replacing Dad) stay as they are.
+      const keep = [...new Set(characters.map((c) => c.name.trim()).filter((n) => n !== name && whole(name).test(n)))].sort((a, b) => b.length - a.length)
+      let text = JSON.stringify(x.episodes)
+      keep.forEach((n, k) => (text = text.replace(whole(n), `\u0001${k}\u0001`)))
+      text = text.replace(re, () => JSON.stringify(to.name.trim()).slice(1, -1))
+      keep.forEach((n, k) => (text = text.replaceAll(`\u0001${k}\u0001`, JSON.stringify(n).slice(1, -1))))
+      x.episodes = JSON.parse(text)
+    })
+  }
   const running = (e: Episode) => !!runs[`${s.id}:${e.id}`]?.step
 
   // An episode with scenes asks first; an empty one goes straight away. Either way Undo brings it back.
@@ -406,6 +481,17 @@ function SeriesEditor({ header, s, characters, tasks, runs, onBack, onDeleted, o
     setRemoved({ episode: e, index })
     if (e.id === ep?.id) setEpId(s.episodes[index + 1]?.id ?? s.episodes[index - 1]?.id)
     set((x) => void (x.episodes = x.episodes.filter((y) => y.id !== e.id)))
+  }
+
+  // A copy goes right below the original with fresh ids, so the two are worked on apart. Its pictures, videos and cut are
+  // the same files until one is remade; an edit opens fresh for it.
+  function duplicate(e: Episode) {
+    const ids = new Map(e.scenes.map((sc) => [sc.id, crypto.randomUUID()]))
+    const copy: Episode = { ...structuredClone(e), id: crypto.randomUUID(), title: `${e.title || 'Untitled'} (copy)` }
+    copy.scenes = copy.scenes.map((sc) => ({ ...sc, id: ids.get(sc.id)! }))
+    if (copy.review) copy.review.issues = copy.review.issues.map((x) => ({ ...x, shots: x.shots.map((id) => ids.get(id) ?? id) }))
+    set((x) => void x.episodes.splice(x.episodes.findIndex((y) => y.id === e.id) + 1, 0, copy))
+    setEpId(copy.id)
   }
 
   return (
@@ -447,6 +533,7 @@ function SeriesEditor({ header, s, characters, tasks, runs, onBack, onDeleted, o
                     </span>
                   </span>
                 </button>
+                <ReplaceWith what={c} options={characters.filter((o) => !o.kind && o.id !== c.id)} onPick={(id) => replace(c, id, 'cast')} />
                 <IconButton title={`Remove from ${ad ? 'these ads' : 'this series'}`} className="hidden size-7 group-hover:inline-flex" onClick={() => set((x) => void (x.cast = x.cast.filter((id) => id !== c.id)))}><X size={13} /></IconButton>
               </div>
             ))}
@@ -474,6 +561,7 @@ function SeriesEditor({ header, s, characters, tasks, runs, onBack, onDeleted, o
                     <span className={`truncate text-xs ${ready(tasks, c) ? 'text-muted' : 'text-danger'}`}>{ready(tasks, c) ? (c.category ?? 'other').replace(/^./, (x) => x.toUpperCase()) : 'Pick an image'}</span>
                   </span>
                 </button>
+                <ReplaceWith what={c} options={characters.filter((o) => o.kind === 'element' && o.category !== 'product' && o.id !== c.id)} onPick={(id) => replace(c, id, 'elements')} />
                 <IconButton title={`Remove from ${ad ? 'these ads' : 'this series'}`} className="hidden size-7 group-hover:inline-flex" onClick={() => set((x) => void (x.elements = (x.elements ?? []).filter((id) => id !== c.id)))}><X size={13} /></IconButton>
               </div>
             ))}
@@ -541,6 +629,7 @@ function SeriesEditor({ header, s, characters, tasks, runs, onBack, onDeleted, o
                       {running(e) ? <LoaderCircle size={13} className="animate-spin" /> : e.cut ? <Film size={13} /> : e.step !== 'script' ? e.step : ''}
                     </span>
                   </button>
+                  {!running(e) && <IconButton title={`Duplicate ${word}`} className="hidden size-7 group-hover:inline-flex" onClick={() => duplicate(e)}><Copy size={13} /></IconButton>}
                   {!running(e) && <IconButton title={`Remove ${word}`} className="hidden size-7 group-hover:inline-flex" onClick={() => removeEpisode(e)}><X size={14} /></IconButton>}
                 </div>
               ),
@@ -636,5 +725,20 @@ function StylePicker({ preset, refs, onPreset, onRefs, compact }: {
         <input ref={picker} type="file" multiple accept={ACCEPT_IMAGES} hidden onChange={(e) => (e.target.files && void add(e.target.files), (e.target.value = ''))} />
       </div>
     </div>
+  )
+}
+
+// A hover button with a menu of saved people (or places): picking one swaps it in everywhere.
+function ReplaceWith({ what, options, onPick }: { what: Character; options: Character[]; onPick: (id: string) => void }) {
+  if (!options.length) return null
+  const title = `Replace ${what.name || 'this'} everywhere (briefs, scripts, shots)`
+  return (
+    <label title={title} className="relative hidden size-7 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted group-hover:inline-flex hover:bg-raised hover:text-fg">
+      <Repeat2 size={13} />
+      <select aria-label={title} value="" onChange={(e) => e.target.value && onPick(e.target.value)} className="absolute inset-0 cursor-pointer opacity-0">
+        <option value="">Replace with…</option>
+        {options.map((o) => <option key={o.id} value={o.id}>{o.name || 'Unnamed'}</option>)}
+      </select>
+    </label>
   )
 }

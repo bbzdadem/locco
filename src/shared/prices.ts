@@ -31,9 +31,7 @@ export const PRICES: Record<string, Price> = {
   'veo-3-1': { by: ['model', 'resolution'],
     credits: { 'veo3_fast|720p': 60, 'veo3_fast|1080p': 65, 'veo3_fast|4k': 180, 'veo3_lite|720p': 30, 'veo3_lite|1080p': 35,
       'veo3_lite|4k': 150, 'veo3|720p': 250, 'veo3|1080p': 255, 'veo3|4k': 370 } },
-  'seedance-2': { by: 'resolution', perSecond: true, credits: { '480p': 19, '720p': 41, '1080p': 102, '4k': 208 } },
   'hailuo-2-3-pro': { by: ['duration', 'resolution'], credits: { '6|768P': 45, '10|768P': 90, '6|1080P': 80 } },
-  'wan-2-7': { by: 'resolution', perSecond: true, credits: { '720p': 16, '1080p': 24 } },
   'grok-imagine': { by: 'resolution', perSecond: true, credits: { '480p': 2.4, '720p': 4.5, '1080p': 8 } },
   'video-upscale': { by: 'upscale_factor', perSecond: true, credits: { '1': 8, '2': 8, '4': 14 } },
 
@@ -47,9 +45,10 @@ export const PRICES: Record<string, Price> = {
 
 // Credits for one result as [low, high]; a range when a price-driving setting isn't chosen yet.
 // `perSecond` is true when the price depends on a duration that isn't known (shown as "/s").
-export function estimate(modelId: string, input: Record<string, unknown>, chars = 0): { lo: number; hi: number; perSecond: boolean } | null {
+// refSeconds: how long the attached reference videos run (Seedance 2.x, Wan 3.0 and MiniMax H3 bill those seconds too).
+export function estimate(modelId: string, input: Record<string, unknown>, chars = 0, refSeconds = 0): { lo: number; hi: number; perSecond: boolean } | null {
   const p = PRICES[modelId]
-  if (!p) return fromPriceList(modelId, input)
+  if (!p) return fromPriceList(modelId, input, refSeconds)
   const table = typeof p.credits === 'number' ? { '': p.credits } : p.credits
   const key = p.by === undefined ? undefined : [p.by].flat().map((k) => String(input[k])).join('|')
   if (p.strict && (key === undefined || !(key in table))) return null
@@ -75,7 +74,8 @@ export function priceLabel(e: ReturnType<typeof estimate>, count = 1) {
 
 // Models without a hand-checked entry: start from all of the model's rows in kie's price list (stored by
 // scripts/sync-models.mjs) and keep only rows that match your settings. Anything that can't be narrowed shows as a range.
-function fromPriceList(modelId: string, input: Record<string, unknown>) {
+const BILLS_REF_VIDEO = /^(seedance-2|wan-3|minimax-h3-reference)/
+function fromPriceList(modelId: string, input: Record<string, unknown>, refSeconds = 0) {
   let rows = (MEDIA_MODELS.find((m) => m.id === modelId)?.prices ?? []).filter((r) => r.u !== 'other')
   if (!rows.length) return null
   const narrow = (keep: (d: string) => boolean) => {
@@ -83,9 +83,12 @@ function fromPriceList(modelId: string, input: Record<string, unknown>) {
     if (left.length) rows = left
   }
   const isRef = (v: unknown) => !!v && typeof v === 'object' && 'file' in v
-  const withImages = Object.values(input).some((v) => (Array.isArray(v) ? v.some(isRef) : isRef(v)))
+  const isVideo = (v: unknown) => isRef(v) && /^video\//.test((v as { mime?: string }).mime ?? '')
+  const has = (test: (v: unknown) => boolean) => Object.values(input).some((v) => (Array.isArray(v) ? v.some(test) : test(v)))
+  const withImages = has(isRef), withVideo = has(isVideo)
   narrow((d) => (withImages ? /image[- ]?to|edit|reference|keyframe|transition/.test(d) : /text[- ]?to/.test(d)))
-  narrow((d) => !/video-to-video|video to video|video-?edit|with video/.test(d)) // locco never sends video inputs
+  // A reference video has its own (per second, lower) rate; without one, leave out video-input and video-edit rows.
+  narrow((d) => (withVideo ? /with video|(^|, )video input/.test(d) : !/video-to-video|video to video|video-?edit|with video/.test(d)))
   for (const [k, v] of Object.entries(input)) {
     if (typeof v === 'boolean' && /audio|sound/.test(k)) narrow((d) => (v ? /with (native )?audio/ : /(without|no) (native )?audio/).test(d))
     if (typeof v !== 'string' && typeof v !== 'number') continue
@@ -94,7 +97,7 @@ function fromPriceList(modelId: string, input: Record<string, unknown>) {
     const re = k === 'duration' ? new RegExp(`(^|[^0-9.])${tok}(\\.0)?\\s?s\\b`) : new RegExp(`(^|[^a-z0-9])${tok}([^a-z0-9]|$)`)
     narrow((d) => re.test(d))
   }
-  const seconds = Number(input.duration) || 0
+  const seconds = (Number(input.duration) || 0) + (withVideo && BILLS_REF_VIDEO.test(modelId) ? refSeconds : 0)
   const costs = rows.map((r) => r.c * (r.u === 'second' ? seconds || 1 : 1))
   return { lo: Math.min(...costs), hi: Math.max(...costs), perSecond: rows.some((r) => r.u === 'second') && !seconds }
 }

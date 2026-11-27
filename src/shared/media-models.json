@@ -3031,6 +3031,8 @@
           "name": "duration",
           "type": "string",
           "enum": [
+            "3",
+            "4",
             "5",
             "10",
             "15"
@@ -3100,10 +3102,21 @@
           "type": "string",
           "enum": [
             "720p",
-            "1080p"
+            "1080p",
+            "4k"
           ],
           "default": "720p",
-          "description": "Output resolution. `720p` or `1080p`. Default: `720p`. "
+          "description": "Output resolution. Default: `720p`."
+        },
+        {
+          "name": "dynamic_range",
+          "type": "string",
+          "enum": [
+            "sdr",
+            "hdr"
+          ],
+          "default": "sdr",
+          "description": "Dynamic range of the output video. Optional. Default: `sdr`."
         },
         {
           "name": "aspect_ratio",
@@ -3113,7 +3126,9 @@
             "16:9",
             "9:16",
             "1:1",
-            "21:9"
+            "21:9",
+            "4:3",
+            "3:4"
           ],
           "description": "Output aspect ratio. Only used when no frame is provided (text-to-video); default is `16:9`. If any frame is provided, the output follows the first frame's aspe"
         },
@@ -3257,6 +3272,22 @@
           "description": "Enter a list of image URLs or asset://{assetId} (for example: asset://asset-20260404242101-76djj)."
         },
         {
+          "name": "reference_video_urls",
+          "type": "array",
+          "media": true,
+          "accept": "video",
+          "maxItems": 3,
+          "description": "Enter a list of video URLs or asset://{assetId} (for example: asset://asset-20260404242101-76djj) ."
+        },
+        {
+          "name": "reference_audio_urls",
+          "type": "array",
+          "media": true,
+          "accept": "audio",
+          "maxItems": 3,
+          "description": "Enter a list of audio URLs or asset://{assetId} (for example: asset://asset-20260404242101-76djj) ."
+        },
+        {
           "name": "generate_audio",
           "type": "boolean",
           "default": true,
@@ -3295,13 +3326,56 @@
           "default": "5",
           "description": "Video duration in 4-15 seconds or -1.",
           "enum": [
+            "4",
             "5",
             "10",
             "15"
           ]
         }
       ]
-    }
+    },
+    "prices": [
+      {
+        "d": "bytedance/seedance-2, 4k no video input",
+        "c": 208,
+        "u": "second"
+      },
+      {
+        "d": "bytedance/seedance-2, 4k with video input",
+        "c": 128,
+        "u": "second"
+      },
+      {
+        "d": "bytedance/seedance-2, 1080p with video input",
+        "c": 62,
+        "u": "second"
+      },
+      {
+        "d": "bytedance/seedance-2, 1080p no video input",
+        "c": 102,
+        "u": "second"
+      },
+      {
+        "d": "bytedance/seedance-2, 720p no video input",
+        "c": 41,
+        "u": "second"
+      },
+      {
+        "d": "bytedance/seedance-2, 720p with video input",
+        "c": 25,
+        "u": "second"
+      },
+      {
+        "d": "bytedance/seedance-2, 480p no video input",
+        "c": 19,
+        "u": "second"
+      },
+      {
+        "d": "bytedance/seedance-2, 480p with video input",
+        "c": 11.5,
+        "u": "second"
+      }
+    ]
   },
   {
     "id": "hailuo-2-3-pro",
@@ -3345,134 +3419,6 @@
           ],
           "required": true,
           "description": "Required. The resolution of the generated video."
-        }
-      ]
-    }
-  },
-  {
-    "id": "wan-2-7",
-    "kind": "video",
-    "label": "Wan 2.7",
-    "text": {
-      "path": "wan/2-7-text-to-video",
-      "slug": "wan/2-7-text-to-video",
-      "deprecated": false,
-      "fields": [
-        {
-          "name": "prompt",
-          "type": "string",
-          "required": true,
-          "description": "Positive prompt. Minimum length: 1 character. Maximum length: 5000 characters."
-        },
-        {
-          "name": "negative_prompt",
-          "type": "string",
-          "description": "Negative prompt. Maximum length: 500 characters."
-        },
-        {
-          "name": "resolution",
-          "type": "string",
-          "enum": [
-            "720p",
-            "1080p"
-          ],
-          "default": "1080p",
-          "description": "Video resolution. "
-        },
-        {
-          "name": "ratio",
-          "type": "string",
-          "enum": [
-            "16:9",
-            "9:16",
-            "1:1",
-            "4:3",
-            "3:4"
-          ],
-          "default": "16:9",
-          "description": "Video aspect ratio."
-        },
-        {
-          "name": "duration",
-          "type": "integer",
-          "default": "5",
-          "min": 2,
-          "max": 15,
-          "description": "Video duration in seconds.",
-          "enum": [
-            "5",
-            "10",
-            "15"
-          ]
-        },
-        {
-          "name": "seed",
-          "type": "integer",
-          "min": 0,
-          "max": 2147483647,
-          "description": "Random seed."
-        }
-      ]
-    },
-    "image": {
-      "path": "wan/2-7-image-to-video",
-      "slug": "wan/2-7-image-to-video",
-      "deprecated": false,
-      "fields": [
-        {
-          "name": "prompt",
-          "type": "string",
-          "required": true,
-          "description": "Positive prompt. Maximum length: 5000 characters."
-        },
-        {
-          "name": "negative_prompt",
-          "type": "string",
-          "description": "Negative prompt. Maximum length: 500 characters."
-        },
-        {
-          "name": "first_frame_url",
-          "type": "string",
-          "media": true,
-          "accept": "image",
-          "description": "First frame image URL."
-        },
-        {
-          "name": "last_frame_url",
-          "type": "string",
-          "media": true,
-          "accept": "image",
-          "description": "Last frame image URL."
-        },
-        {
-          "name": "resolution",
-          "type": "string",
-          "enum": [
-            "720p",
-            "1080p"
-          ],
-          "default": "1080p",
-          "description": "Video resolution. "
-        },
-        {
-          "name": "duration",
-          "type": "integer",
-          "default": "5",
-          "min": 2,
-          "max": 15,
-          "description": "Total output video duration in seconds.",
-          "enum": [
-            "5",
-            "10",
-            "15"
-          ]
-        },
-        {
-          "name": "seed",
-          "type": "integer",
-          "min": 0,
-          "max": 2147483647,
-          "description": "Random seed."
         }
       ]
     }
@@ -3733,131 +3679,6 @@
     ]
   },
   {
-    "id": "kling-2-5-turbo",
-    "kind": "video",
-    "label": "Kling 2.5 Turbo Pro",
-    "text": {
-      "path": "kling/v25-turbo-text-to-video-pro",
-      "slug": "kling/v2-5-turbo-text-to-video-pro",
-      "deprecated": false,
-      "fields": [
-        {
-          "name": "prompt",
-          "type": "string",
-          "required": true,
-          "description": "The text description of the video you want to generate (Max length: 2500 characters)"
-        },
-        {
-          "name": "duration",
-          "type": "string",
-          "enum": [
-            "5",
-            "10"
-          ],
-          "required": true,
-          "description": "Required. \"5\" or \"10\" (seconds)."
-        },
-        {
-          "name": "aspect_ratio",
-          "type": "string",
-          "enum": [
-            "16:9",
-            "9:16",
-            "1:1"
-          ],
-          "default": "16:9",
-          "description": "The aspect ratio of the generated video frame"
-        },
-        {
-          "name": "negative_prompt",
-          "type": "string",
-          "description": "Things to avoid in the generated video (Max length: 2500 characters)"
-        },
-        {
-          "name": "cfg_scale",
-          "type": "number",
-          "default": 0.5,
-          "min": 0,
-          "max": 1,
-          "description": "The CFG (Classifier Free Guidance) scale is a measure of how close you want the model to stick to your prompt (Min: 0, Max: 1, Step: 0.1) (step: 0.1)"
-        }
-      ]
-    },
-    "image": {
-      "path": "kling/v25-turbo-image-to-video-pro",
-      "slug": "kling/v2-5-turbo-image-to-video-pro",
-      "deprecated": false,
-      "fields": [
-        {
-          "name": "prompt",
-          "type": "string",
-          "required": true,
-          "description": "The text prompt describing the video to generate (Max length: 2500 characters)"
-        },
-        {
-          "name": "image_url",
-          "type": "string",
-          "media": true,
-          "accept": "image",
-          "required": true,
-          "description": "URL of the image to be used for the video (File URL after upload, not file content; Accepted types: image/jpeg, image/png; Max size: 10.0MB)"
-        },
-        {
-          "name": "tail_image_url",
-          "type": "string",
-          "media": true,
-          "accept": "image",
-          "description": "Tail frame image of video (File URL after upload, not file content; Accepted types: image/jpeg, image/png; Max size: 10.0MB)"
-        },
-        {
-          "name": "duration",
-          "type": "string",
-          "enum": [
-            "5",
-            "10"
-          ],
-          "required": true,
-          "description": "Required. \"5\" or \"10\" (seconds)."
-        },
-        {
-          "name": "negative_prompt",
-          "type": "string",
-          "description": "Negative prompt to exclude certain elements from the video (Max length: 2,496 characters)"
-        },
-        {
-          "name": "cfg_scale",
-          "type": "number",
-          "default": 0.5,
-          "min": 0,
-          "max": 1,
-          "description": "The CFG (Classifier Free Guidance) scale is a measure of how close you want the model to stick to your prompt (Min: 0, Max: 1, Step: 0.1) (step: 0.1)"
-        }
-      ]
-    },
-    "prices": [
-      {
-        "d": "kling 2.5 turbo, text-to-video, turbo pro-10.0s",
-        "c": 126,
-        "u": "item"
-      },
-      {
-        "d": "kling 2.5 turbo, image-to-video, turbo pro-5.0s",
-        "c": 63,
-        "u": "item"
-      },
-      {
-        "d": "kling 2.5 turbo, image-to-video, turbo pro-10.0s",
-        "c": 126,
-        "u": "item"
-      },
-      {
-        "d": "kling 2.5 turbo, text-to-video, turbo pro-5.0s",
-        "c": 63,
-        "u": "item"
-      }
-    ]
-  },
-  {
     "id": "kling-3-turbo",
     "kind": "video",
     "label": "Kling 3.0 Turbo",
@@ -3878,6 +3699,8 @@
           "required": true,
           "description": "Required. The duration of the generated video in seconds",
           "enum": [
+            "3",
+            "4",
             "5",
             "10",
             "15"
@@ -3933,6 +3756,8 @@
           "required": true,
           "description": "Required. The duration of the generated video in seconds",
           "enum": [
+            "3",
+            "4",
             "5",
             "10",
             "15"
@@ -3993,7 +3818,8 @@
           "name": "audio",
           "type": "boolean",
           "default": false,
-          "description": "Whether to add audio to the generated video. `true` enables audio; `false` disables audio."
+          "description": "Whether to add audio to the generated video. `true` enables audio; `false` disables audio.",
+          "label": "Sound"
         },
         {
           "name": "resolution",
@@ -4042,7 +3868,103 @@
         }
       ]
     },
+    "image": {
+      "path": "kling/v3-omni-image-to-video",
+      "slug": "kling-3.0-omni/image-to-video",
+      "deprecated": false,
+      "fields": [
+        {
+          "name": "prompt",
+          "type": "string",
+          "required": true,
+          "description": "Video description. It must not be empty after leading and trailing whitespace is removed. Maximum length: 3,072 characters."
+        },
+        {
+          "name": "image_urls",
+          "type": "array",
+          "media": true,
+          "accept": "image",
+          "maxItems": 2,
+          "required": true,
+          "description": "Array of first-frame and last-frame image URLs. Exactly 2 images are required: index 0 is the first frame and index 1 is the last frame. HTTP, HTTPS, and OSS UR"
+        },
+        {
+          "name": "duration",
+          "type": "integer",
+          "enum": [
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15
+          ],
+          "default": 5,
+          "min": 3,
+          "max": 15,
+          "description": "Total video duration in seconds. Optional; the default is 5 seconds. Supports integer values from 3 to 15."
+        },
+        {
+          "name": "resolution",
+          "type": "string",
+          "enum": [
+            "720p",
+            "1080p",
+            "4k"
+          ],
+          "default": "720p",
+          "description": "Video resolution. `720p` outputs a 720p video, `1080p` outputs a 1080p video, and `4k` outputs a 4K video."
+        },
+        {
+          "name": "audio",
+          "type": "boolean",
+          "description": "Whether to enable audio. `true` enables audio; `false` disables audio.",
+          "default": false,
+          "label": "Sound"
+        }
+      ],
+      "fixed": {
+        "aspect_ratio": "auto"
+      }
+    },
     "prices": [
+      {
+        "d": "kling 3.0 omni, image-to-video, 4k with native audio",
+        "c": 75.5,
+        "u": "second"
+      },
+      {
+        "d": "kling 3.0 omni, image-to-video, 4k no native audio",
+        "c": 75.5,
+        "u": "second"
+      },
+      {
+        "d": "kling 3.0 omni, image-to-video, 1080p with native audio",
+        "c": 25.2,
+        "u": "second"
+      },
+      {
+        "d": "kling 3.0 omni, image-to-video, 1080p no native audio",
+        "c": 20.2,
+        "u": "second"
+      },
+      {
+        "d": "kling 3.0 omni, image-to-video, 720p with native audio",
+        "c": 20.2,
+        "u": "second"
+      },
+      {
+        "d": "kling 3.0 omni, image-to-video, 720p no native audio",
+        "c": 15.1,
+        "u": "second"
+      },
       {
         "d": "kling 3.0 omni, text-to-video, 4k with native audio",
         "c": 75.5,
@@ -4098,6 +4020,8 @@
           "max": 30,
           "description": "Output video duration in seconds. Integer from 3 to 30. Default: `5`.",
           "enum": [
+            "3",
+            "4",
             "5",
             "10",
             "15",
@@ -4110,10 +4034,21 @@
           "type": "string",
           "enum": [
             "720p",
-            "1080p"
+            "1080p",
+            "4k"
           ],
           "default": "720p",
-          "description": "Output resolution. `720p` or `1080p`. Default: `720p`."
+          "description": "Output resolution. Default: `720p`."
+        },
+        {
+          "name": "dynamic_range",
+          "type": "string",
+          "enum": [
+            "sdr",
+            "hdr"
+          ],
+          "default": "sdr",
+          "description": "Dynamic range of the output video. Optional. Default: `sdr`."
         },
         {
           "name": "aspect_ratio",
@@ -4123,7 +4058,9 @@
             "16:9",
             "9:16",
             "1:1",
-            "21:9"
+            "21:9",
+            "4:3",
+            "3:4"
           ],
           "description": "Output aspect ratio. Optional."
         },
@@ -4135,6 +4072,15 @@
           "accept": "image",
           "maxItems": 10,
           "description": "Reference images, up to 10 publicly accessible URLs. Mention them in the prompt as `@image_1`, `@image_2`, … in array order. Each side must be 300–65536 pixels;"
+        },
+        {
+          "name": "video_urls",
+          "type": "array",
+          "default": [],
+          "media": true,
+          "accept": "video",
+          "maxItems": 5,
+          "description": "Reference videos, up to 5 clips, each 2–30 seconds. Mention them in the prompt as `@video_1`, `@video_2`, …. Reference videos plus video subjects in `elements` "
         },
         {
           "name": "keep_original_sound",
@@ -4152,6 +4098,16 @@
       ]
     },
     "prices": [
+      {
+        "d": "kling 4.0, reference-to-video, 4k with video input",
+        "c": 59,
+        "u": "second"
+      },
+      {
+        "d": "kling 4.0, reference-to-video, 4k no video input",
+        "c": 99,
+        "u": "second"
+      },
       {
         "d": "kling 4.0, reference-to-video, 1080p with video input",
         "c": 25.5,
@@ -4204,6 +4160,8 @@
           "max": 20,
           "description": "Output video duration in seconds. Integer from 3 to 20. Default: `5`.",
           "enum": [
+            "3",
+            "4",
             "5",
             "10",
             "15",
@@ -4226,9 +4184,11 @@
             "16:9",
             "9:16",
             "1:1",
-            "21:9"
+            "21:9",
+            "4:3",
+            "3:4"
           ],
-          "description": "Output aspect ratio. `16:9`, `9:16`, `1:1`, or `21:9`. There is no `auto`. Only used when `first_frame_url` is omitted (text-to-video); default `16:9`. When a f"
+          "description": "Output aspect ratio. `16:9`, `9:16`, `1:1`, `21:9`, `4:3`, or `3:4`. There is no `auto`. Only used when `first_frame_url` is omitted (text-to-video); default `1"
         }
       ],
       "tags": [
@@ -4268,6 +4228,15 @@
           "description": "Reference images, up to 10 publicly accessible URLs. Mention them in the prompt as `@image_1`, `@image_2`, … in array order."
         },
         {
+          "name": "video_urls",
+          "type": "array",
+          "default": [],
+          "media": true,
+          "accept": "video",
+          "maxItems": 5,
+          "description": "Reference videos, up to 5 publicly accessible URLs. Mention them in the prompt as `@video_1`, `@video_2`, …. Reference videos plus video subjects in `elements` "
+        },
+        {
           "name": "keep_original_sound",
           "type": "boolean",
           "default": false,
@@ -4281,6 +4250,8 @@
           "max": 20,
           "description": "Output video duration in seconds. Integer from 3 to 20. Default: `5`.",
           "enum": [
+            "3",
+            "4",
             "5",
             "10",
             "15",
@@ -4304,7 +4275,9 @@
             "16:9",
             "9:16",
             "1:1",
-            "21:9"
+            "21:9",
+            "4:3",
+            "3:4"
           ],
           "description": "Output aspect ratio. Optional."
         }
@@ -4367,6 +4340,22 @@
           "description": "Enter a list of image URLs or asset://{assetId} (for example: asset://asset-20260404242101-76djj)."
         },
         {
+          "name": "reference_video_urls",
+          "type": "array",
+          "media": true,
+          "accept": "video",
+          "maxItems": 3,
+          "description": "Enter a list of video URLs or asset://{assetId} (for example: asset://asset-20260404242101-76djj)."
+        },
+        {
+          "name": "reference_audio_urls",
+          "type": "array",
+          "media": true,
+          "accept": "audio",
+          "maxItems": 3,
+          "description": "Enter a list of audio URLs or asset://{assetId} (for example: asset://asset-20260404242101-76djj)."
+        },
+        {
           "name": "generate_audio",
           "type": "boolean",
           "default": true,
@@ -4403,6 +4392,7 @@
           "default": "5",
           "description": "Video duration in 4-15 seconds or -1.",
           "enum": [
+            "4",
             "5",
             "10",
             "15"
@@ -4470,6 +4460,22 @@
           "description": "Enter a list of image URLs or asset://{assetId} (for example: asset://asset-20260404242101-76djj)."
         },
         {
+          "name": "reference_video_urls",
+          "type": "array",
+          "media": true,
+          "accept": "video",
+          "maxItems": 3,
+          "description": "Enter a list of video URLs or asset://{assetId} (for example: asset://asset-20260404242101-76djj)."
+        },
+        {
+          "name": "reference_audio_urls",
+          "type": "array",
+          "media": true,
+          "accept": "audio",
+          "maxItems": 3,
+          "description": "Enter a list of audio URLs or asset://{assetId} (for example: asset://asset-20260404242101-76djj)."
+        },
+        {
           "name": "generate_audio",
           "type": "boolean",
           "default": true,
@@ -4506,6 +4512,7 @@
           "default": "5",
           "description": "Video duration in 4-15 seconds or -1.",
           "enum": [
+            "4",
             "5",
             "10",
             "15"
@@ -4573,6 +4580,22 @@
           "description": "Enter a list of image URLs or asset://{assetId} (for example: asset://asset-20260404242101-76djj)."
         },
         {
+          "name": "reference_video_urls",
+          "type": "array",
+          "media": true,
+          "accept": "video",
+          "maxItems": 10,
+          "description": "Enter a list of video URLs or asset://{assetId} (for example: asset://asset-20260404242101-76djj) ."
+        },
+        {
+          "name": "reference_audio_urls",
+          "type": "array",
+          "media": true,
+          "accept": "audio",
+          "maxItems": 10,
+          "description": "Enter a list of audio URLs or asset://{assetId} (for example: asset://asset-20260404242101-76djj) ."
+        },
+        {
           "name": "generate_audio",
           "type": "boolean",
           "default": true,
@@ -4584,10 +4607,11 @@
           "enum": [
             "480p",
             "720p",
-            "1080p"
+            "1080p",
+            "4k"
           ],
           "default": "720p",
-          "description": "Video resolution - 480p for faster generation, 720p for balance."
+          "description": "Video resolution - 480p for faster generation, 720p for balance, 1080p for high-quality video, 4k for Ultra-High Definition with the finest visual detail. 4k ou"
         },
         {
           "name": "aspect_ratio",
@@ -4610,6 +4634,7 @@
           "default": "5",
           "description": "Video duration in 4-30 seconds.",
           "enum": [
+            "4",
             "5",
             "10",
             "15",
@@ -4636,6 +4661,16 @@
       ]
     },
     "prices": [
+      {
+        "d": "bytedance/seedance-2-5, 4k with video",
+        "c": 155,
+        "u": "second"
+      },
+      {
+        "d": "bytedance/seedance-2-5, 4k no video",
+        "c": 251,
+        "u": "second"
+      },
       {
         "d": "bytedance/seedance-2-5, 1080p with video",
         "c": 95,
@@ -4664,336 +4699,6 @@
       {
         "d": "bytedance/seedance-2-5, 480p no video",
         "c": 28,
-        "u": "second"
-      }
-    ]
-  },
-  {
-    "id": "seedance-1-pro",
-    "kind": "video",
-    "label": "Seedance 1 Pro",
-    "text": {
-      "path": "bytedance/v1-pro-text-to-video",
-      "slug": "bytedance/v1-pro-text-to-video",
-      "deprecated": false,
-      "fields": [
-        {
-          "name": "prompt",
-          "type": "string",
-          "required": true,
-          "description": "The text prompt used to generate the video (Max length: 10000 characters)"
-        },
-        {
-          "name": "aspect_ratio",
-          "type": "string",
-          "enum": [
-            "21:9",
-            "16:9",
-            "4:3",
-            "1:1",
-            "3:4",
-            "9:16"
-          ],
-          "default": "16:9",
-          "description": "The aspect ratio of the generated video"
-        },
-        {
-          "name": "resolution",
-          "type": "string",
-          "enum": [
-            "480p",
-            "720p",
-            "1080p"
-          ],
-          "default": "720p",
-          "description": "Video resolution - 480p for faster generation, 720p for balance, 1080p for higher quality"
-        },
-        {
-          "name": "duration",
-          "type": "string",
-          "enum": [
-            "5",
-            "10"
-          ],
-          "default": "5",
-          "description": "Duration of the video in seconds"
-        },
-        {
-          "name": "camera_fixed",
-          "type": "boolean",
-          "description": "Whether to fix the camera position (Boolean value (true/false))"
-        },
-        {
-          "name": "seed",
-          "type": "number",
-          "default": -1,
-          "min": -1,
-          "max": 2147483647,
-          "description": "Random seed to control video generation. Use -1 for random. (Min: -1, Max: 2147483647, Step: 1) (step: 1)"
-        },
-        {
-          "name": "enable_safety_checker",
-          "type": "boolean",
-          "description": "The safety checker is always enabled in Playground. It can only be disabled by setting false through the API. (Boolean value (true/false))"
-        }
-      ]
-    },
-    "image": {
-      "path": "bytedance/v1-pro-image-to-video",
-      "slug": "bytedance/v1-pro-image-to-video",
-      "deprecated": false,
-      "fields": [
-        {
-          "name": "prompt",
-          "type": "string",
-          "required": true,
-          "description": "The text prompt used to generate the video (Max length: 10000 characters)"
-        },
-        {
-          "name": "image_url",
-          "type": "string",
-          "media": true,
-          "accept": "image",
-          "required": true,
-          "description": "The URL of the image used to generate video (File URL after upload, not file content; Accepted types: image/jpeg, image/png, image/webp; Max size: 10.0MB)"
-        },
-        {
-          "name": "resolution",
-          "type": "string",
-          "enum": [
-            "480p",
-            "720p",
-            "1080p"
-          ],
-          "default": "720p",
-          "description": "Video resolution - 480p for faster generation, 720p for balance, 1080p for higher quality"
-        },
-        {
-          "name": "duration",
-          "type": "string",
-          "enum": [
-            "5",
-            "10"
-          ],
-          "default": "5",
-          "description": "Duration of the video in seconds"
-        },
-        {
-          "name": "camera_fixed",
-          "type": "boolean",
-          "description": "Whether to fix the camera position (Boolean value (true/false))"
-        },
-        {
-          "name": "seed",
-          "type": "number",
-          "default": -1,
-          "min": -1,
-          "max": 2147483647,
-          "description": "Random seed to control video generation. Use -1 for random. (Min: -1, Max: 2147483647, Step: 1) (step: 1)"
-        },
-        {
-          "name": "enable_safety_checker",
-          "type": "boolean",
-          "description": "The safety checker is always enabled in Playground. It can only be disabled by setting false through the API. (Boolean value (true/false))"
-        }
-      ]
-    },
-    "prices": [
-      {
-        "d": "bytedance/seedance-v1-pro, text-to-video, 1080p",
-        "c": 14,
-        "u": "second"
-      },
-      {
-        "d": "bytedance/seedance-v1-pro, text-to-video, 720p",
-        "c": 6,
-        "u": "second"
-      },
-      {
-        "d": "bytedance/seedance-v1-pro, text-to-video, 480p",
-        "c": 2.8,
-        "u": "second"
-      },
-      {
-        "d": "bytedance/seedance-v1-pro, image-to-video, 1080p",
-        "c": 14,
-        "u": "second"
-      },
-      {
-        "d": "bytedance/seedance-v1-pro, image-to-video, 720p",
-        "c": 6,
-        "u": "second"
-      },
-      {
-        "d": "bytedance/seedance-v1-pro, image-to-video, 480p",
-        "c": 2.8,
-        "u": "second"
-      }
-    ]
-  },
-  {
-    "id": "seedance-1-lite",
-    "kind": "video",
-    "label": "Seedance 1 Lite",
-    "text": {
-      "path": "bytedance/v1-lite-text-to-video",
-      "slug": "bytedance/v1-lite-text-to-video",
-      "deprecated": false,
-      "fields": [
-        {
-          "name": "prompt",
-          "type": "string",
-          "required": true,
-          "description": "The text prompt used to generate the video (Max length: 10000 characters)"
-        },
-        {
-          "name": "aspect_ratio",
-          "type": "string",
-          "enum": [
-            "16:9",
-            "4:3",
-            "1:1",
-            "3:4",
-            "9:16",
-            "9:21"
-          ],
-          "default": "16:9",
-          "description": "The aspect ratio of the generated video"
-        },
-        {
-          "name": "resolution",
-          "type": "string",
-          "enum": [
-            "480p",
-            "720p",
-            "1080p"
-          ],
-          "default": "720p",
-          "description": "Video resolution - 480p for faster generation, 720p for higher quality"
-        },
-        {
-          "name": "duration",
-          "type": "string",
-          "enum": [
-            "5",
-            "10"
-          ],
-          "default": "5",
-          "description": "Duration of the video in seconds"
-        },
-        {
-          "name": "camera_fixed",
-          "type": "boolean",
-          "description": "Whether to fix the camera position (Boolean value (true/false))"
-        },
-        {
-          "name": "seed",
-          "type": "integer",
-          "description": "Random seed to control video generation. Use -1 for random."
-        },
-        {
-          "name": "enable_safety_checker",
-          "type": "boolean",
-          "description": "The safety checker is always enabled in Playground. It can only be disabled by setting false through the API. (Boolean value (true/false))"
-        }
-      ]
-    },
-    "image": {
-      "path": "bytedance/v1-lite-image-to-video",
-      "slug": "bytedance/v1-lite-image-to-video",
-      "deprecated": false,
-      "fields": [
-        {
-          "name": "prompt",
-          "type": "string",
-          "required": true,
-          "description": "The text prompt used to generate the video (Max length: 10000 characters)"
-        },
-        {
-          "name": "image_url",
-          "type": "string",
-          "media": true,
-          "accept": "image",
-          "required": true,
-          "description": "The URL of the image used to generate video (File URL after upload, not file content; Accepted types: image/jpeg, image/png, image/webp; Max size: 10.0MB)"
-        },
-        {
-          "name": "resolution",
-          "type": "string",
-          "enum": [
-            "480p",
-            "720p",
-            "1080p"
-          ],
-          "default": "720p",
-          "description": "Video resolution - 480p for faster generation, 720p for higher quality"
-        },
-        {
-          "name": "duration",
-          "type": "string",
-          "enum": [
-            "5",
-            "10"
-          ],
-          "default": "5",
-          "description": "Duration of the video in seconds"
-        },
-        {
-          "name": "camera_fixed",
-          "type": "boolean",
-          "description": "Whether to fix the camera position (Boolean value (true/false))"
-        },
-        {
-          "name": "seed",
-          "type": "number",
-          "default": -1,
-          "min": -1,
-          "max": 2147483647,
-          "description": "Random seed to control video generation. Use -1 for random. (Min: -1, Max: 2147483647, Step: 1) (step: 1)"
-        },
-        {
-          "name": "enable_safety_checker",
-          "type": "boolean",
-          "description": "The safety checker is always enabled in Playground. It can only be disabled by setting false through the API. (Boolean value (true/false))"
-        },
-        {
-          "name": "end_image_url",
-          "type": "string",
-          "media": true,
-          "accept": "image",
-          "description": "The URL of the image the video ends with. Defaults to None. (File URL after upload, not file content; Accepted types: image/jpeg, image/png, image/webp; Max siz"
-        }
-      ]
-    },
-    "prices": [
-      {
-        "d": "bytedance/seedance-v1-lite, text-to-video, 1080p",
-        "c": 10,
-        "u": "second"
-      },
-      {
-        "d": "bytedance/seedance-v1-lite, text-to-video, 720p",
-        "c": 4.5,
-        "u": "second"
-      },
-      {
-        "d": "bytedance/seedance-v1-lite, text-to-video, 480p",
-        "c": 2,
-        "u": "second"
-      },
-      {
-        "d": "bytedance/seedance-v1-lite, image-to-video, 1080p",
-        "c": 10,
-        "u": "second"
-      },
-      {
-        "d": "bytedance/seedance-v1-lite, image-to-video, 720p",
-        "c": 4.5,
-        "u": "second"
-      },
-      {
-        "d": "bytedance/seedance-v1-lite, image-to-video, 480p",
-        "c": 2,
         "u": "second"
       }
     ]
@@ -5062,370 +4767,6 @@
     ]
   },
   {
-    "id": "hailuo-02-pro",
-    "kind": "video",
-    "label": "Hailuo 02 Pro",
-    "text": {
-      "path": "hailuo/02-text-to-video-pro",
-      "slug": "hailuo/02-text-to-video-pro",
-      "deprecated": false,
-      "fields": [
-        {
-          "name": "prompt",
-          "type": "string",
-          "required": true,
-          "description": "The text prompt for video generation (Max length: 1500 characters)"
-        },
-        {
-          "name": "prompt_optimizer",
-          "type": "boolean",
-          "description": "Whether to use the model's prompt optimizer (Boolean value (true/false))"
-        }
-      ]
-    },
-    "image": {
-      "path": "hailuo/02-image-to-video-pro",
-      "slug": "hailuo/02-image-to-video-pro",
-      "deprecated": false,
-      "fields": [
-        {
-          "name": "prompt",
-          "type": "string",
-          "required": true,
-          "description": "Text prompt describing the desired video animation (Max length: 1500 characters)"
-        },
-        {
-          "name": "image_url",
-          "type": "string",
-          "media": true,
-          "accept": "image",
-          "required": true,
-          "description": "Input image to animate (File URL after upload, not file content; Accepted types: image/jpeg, image/png, image/webp; Max size: 10.0MB)"
-        },
-        {
-          "name": "end_image_url",
-          "type": "string",
-          "media": true,
-          "accept": "image",
-          "description": "Optional URL of the image to use as the last frame of the video (File URL after upload, not file content; Accepted types: image/jpeg, image/png, image/webp; Max"
-        },
-        {
-          "name": "prompt_optimizer",
-          "type": "boolean",
-          "description": "Whether to use the model's prompt optimizer (Boolean value (true/false))"
-        }
-      ]
-    },
-    "prices": [
-      {
-        "d": "hailuo 02, image-to-video, pro-6.0s-1080p",
-        "c": 57,
-        "u": "item"
-      },
-      {
-        "d": "hailuo 02, text-to-video, pro-6.0s-1080p",
-        "c": 57,
-        "u": "item"
-      }
-    ]
-  },
-  {
-    "id": "wan-2-6",
-    "kind": "video",
-    "label": "Wan 2.6",
-    "text": {
-      "path": "wan/2-6-text-to-video",
-      "slug": "wan/2-6-text-to-video",
-      "deprecated": false,
-      "fields": [
-        {
-          "name": "prompt",
-          "type": "string",
-          "required": true,
-          "description": "Text prompts for video generation. Supports both Chinese and English, with a minimum of 1 characters and a maximum of 5,000 characters. (Max length: 5000 charac"
-        },
-        {
-          "name": "duration",
-          "type": "string",
-          "enum": [
-            "5",
-            "10",
-            "15"
-          ],
-          "default": "5",
-          "description": "The duration of the generated video in seconds"
-        },
-        {
-          "name": "resolution",
-          "type": "string",
-          "enum": [
-            "720p",
-            "1080p"
-          ],
-          "description": "Output resolution: 720p or 1080p. Set this field explicitly."
-        },
-        {
-          "name": "multi_shots",
-          "type": "boolean",
-          "default": false,
-          "description": "The multi shots parameter controls the shot composition style during AI video generation, determining whether the generated video is a single continuous shot or"
-        }
-      ]
-    },
-    "image": {
-      "path": "wan/2-6-image-to-video",
-      "slug": "wan/2-6-image-to-video",
-      "deprecated": false,
-      "fields": [
-        {
-          "name": "prompt",
-          "type": "string",
-          "required": true,
-          "description": "Text prompts for video generation. Supports both Chinese and English, with a minimum of 2 characters and a maximum of 5,000 characters. (Max length: 5000 charac"
-        },
-        {
-          "name": "image_urls",
-          "type": "array",
-          "media": true,
-          "accept": "image",
-          "maxItems": 1,
-          "required": true,
-          "description": "Upload an image file to use as input for the API (File URL after upload, not file content; Accepted types: image/jpeg, image/png, image/webp; Max size: 10.0MB),"
-        },
-        {
-          "name": "duration",
-          "type": "string",
-          "enum": [
-            "5",
-            "10",
-            "15"
-          ],
-          "default": "5",
-          "description": "The duration of the generated video in seconds"
-        },
-        {
-          "name": "resolution",
-          "type": "string",
-          "enum": [
-            "720p",
-            "1080p"
-          ],
-          "default": "1080p",
-          "description": "Video resolution tier"
-        },
-        {
-          "name": "multi_shots",
-          "type": "boolean",
-          "default": false,
-          "description": "The multi shots parameter controls the shot composition style during AI video generation, determining whether the generated video is a single continuous shot or"
-        }
-      ]
-    },
-    "prices": [
-      {
-        "d": "wan 2.6, video-to-video, 5.0s-1080p",
-        "c": 105,
-        "u": "item"
-      },
-      {
-        "d": "wan 2.6, video-to-video, 10.0s-1080p",
-        "c": 210,
-        "u": "item"
-      },
-      {
-        "d": "wan 2.6, video-to-video, 10.0s-720p",
-        "c": 140,
-        "u": "item"
-      },
-      {
-        "d": "wan 2.6, image-to-video, 10.0s-1080p",
-        "c": 210,
-        "u": "item"
-      },
-      {
-        "d": "wan 2.6, image-to-video, 15.0s-1080p",
-        "c": 315,
-        "u": "item"
-      },
-      {
-        "d": "wan 2.6, video-to-video, 5.0s-720p",
-        "c": 70,
-        "u": "item"
-      },
-      {
-        "d": "wan 2.6, image-to-video, 5.0s-1080p",
-        "c": 105,
-        "u": "item"
-      },
-      {
-        "d": "wan 2.6, image-to-video, 5.0s-720p",
-        "c": 70,
-        "u": "item"
-      },
-      {
-        "d": "wan 2.6, image-to-video, 10.0s-720p",
-        "c": 140,
-        "u": "item"
-      },
-      {
-        "d": "wan 2.6, image-to-video, 15.0s-720p",
-        "c": 210,
-        "u": "item"
-      },
-      {
-        "d": "wan 2.6, text to video, 5.0s-1080p",
-        "c": 105,
-        "u": "item"
-      },
-      {
-        "d": "wan 2.6, text to video, 10.0s-1080p",
-        "c": 210,
-        "u": "item"
-      },
-      {
-        "d": "wan 2.6, text to video, 15.0s-1080p",
-        "c": 315,
-        "u": "item"
-      },
-      {
-        "d": "wan 2.6, text to video, 15.0s-720p",
-        "c": 210,
-        "u": "item"
-      },
-      {
-        "d": "wan 2.6, text to video, 10.0s-720p",
-        "c": 140,
-        "u": "item"
-      },
-      {
-        "d": "wan 2.6, text to video, 5.0s-720p",
-        "c": 70,
-        "u": "item"
-      }
-    ]
-  },
-  {
-    "id": "wan-2-6-flash",
-    "kind": "video",
-    "label": "Wan 2.6 Flash",
-    "image": {
-      "path": "wan/2-6-flash-image-to-video",
-      "slug": "wan/2-6-flash-image-to-video",
-      "deprecated": false,
-      "fields": [
-        {
-          "name": "prompt",
-          "type": "string",
-          "required": true,
-          "description": "Text prompts for video generation. Supports Chinese and English, 2–1,500 characters."
-        },
-        {
-          "name": "image_urls",
-          "type": "array",
-          "media": true,
-          "accept": "image",
-          "maxItems": 1,
-          "required": true,
-          "description": "A list of image URLs. All images must be at least 256x256px. (File URL after upload, not file content; Accepted types: image/jpeg, image/png, image/webp; Max si"
-        },
-        {
-          "name": "duration",
-          "type": "string",
-          "enum": [
-            "5",
-            "10",
-            "15"
-          ],
-          "default": "5",
-          "description": "The duration of the generated video in seconds"
-        },
-        {
-          "name": "resolution",
-          "type": "string",
-          "enum": [
-            "720p",
-            "1080p"
-          ],
-          "default": "1080p",
-          "description": "Video resolution tier"
-        },
-        {
-          "name": "audio",
-          "type": "boolean",
-          "required": true,
-          "description": "Whether to generate video with audio. Audio directly affects the cost, as the pricing differs between videos with sound and silent videos. (Boolean value (true/"
-        },
-        {
-          "name": "multi_shots",
-          "type": "boolean",
-          "description": "The multi shots parameter controls the shot composition style during AI video generation, determining whether the generated video is a single continuous shot or"
-        }
-      ]
-    },
-    "prices": [
-      {
-        "d": "wan 2.6 flash, image-to-video, without audio-15.0s-1080p",
-        "c": 90,
-        "u": "item"
-      },
-      {
-        "d": "wan 2.6 flash, image-to-video, without audio-10.0s-1080p",
-        "c": 60,
-        "u": "item"
-      },
-      {
-        "d": "wan 2.6 flash, image-to-video, without audio-5.0s-1080p",
-        "c": 30,
-        "u": "item"
-      },
-      {
-        "d": "wan 2.6 flash, image-to-video, with audio-10.0s-1080p",
-        "c": 120,
-        "u": "item"
-      },
-      {
-        "d": "wan 2.6 flash, image-to-video, with audio-15.0s-1080p",
-        "c": 180,
-        "u": "item"
-      },
-      {
-        "d": "wan 2.6 flash, image-to-video, with audio-5.0s-1080p",
-        "c": 60,
-        "u": "item"
-      },
-      {
-        "d": "wan 2.6 flash, image-to-video, without audio-15.0s-720p",
-        "c": 60,
-        "u": "item"
-      },
-      {
-        "d": "wan 2.6 flash, image-to-video, without audio-5.0s-720p",
-        "c": 20,
-        "u": "item"
-      },
-      {
-        "d": "wan 2.6 flash, image-to-video, without audio-10.0s-720p",
-        "c": 40,
-        "u": "item"
-      },
-      {
-        "d": "wan 2.6 flash, image-to-video, with audio-15.0s-720p",
-        "c": 120,
-        "u": "item"
-      },
-      {
-        "d": "wan 2.6 flash, image-to-video, with audio-10.0s-720p",
-        "c": 80,
-        "u": "item"
-      },
-      {
-        "d": "wan 2.6 flash, image-to-video, with audio-5.0s-720p",
-        "c": 40,
-        "u": "item"
-      }
-    ]
-  },
-  {
     "id": "wan-3",
     "kind": "video",
     "label": "Wan 3.0",
@@ -5462,6 +4803,22 @@
           "description": "Reference images for the all-purpose reference mode, with up to 10 images. Correspond to Image1, Image2, … in the prompt according to array order. Specification"
         },
         {
+          "name": "reference_video_urls",
+          "type": "array",
+          "media": true,
+          "accept": "video",
+          "maxItems": 5,
+          "description": "Reference videos for the all-purpose reference mode, with up to 5 clips. Each clip must be 1–15 seconds, with a total duration ≤ 15 seconds. Correspond to Video"
+        },
+        {
+          "name": "reference_audio_urls",
+          "type": "array",
+          "media": true,
+          "accept": "audio",
+          "maxItems": 5,
+          "description": "Reference audio for the all-purpose reference mode, with up to 5 clips. Each clip must be 1–15 seconds, with a total duration ≤ 15 seconds. Correspond to Audio1"
+        },
+        {
           "name": "resolution",
           "type": "string",
           "enum": [
@@ -5492,6 +4849,9 @@
           "default": "5",
           "description": "Output video duration in seconds. Default: 5. Without video input, the range is [2, 30]. With reference videos: input video duration + output duration ≤ 30. Pas",
           "enum": [
+            "2",
+            "3",
+            "4",
             "5",
             "10",
             "15",
@@ -5569,6 +4929,22 @@
           "description": "Reference images for all-purpose reference mode. Up to 10 images. Correspond to Image1, Image2, and so on in the prompt according to array order. Same specifica"
         },
         {
+          "name": "reference_video_urls",
+          "type": "array",
+          "media": true,
+          "accept": "video",
+          "maxItems": 5,
+          "description": "Reference videos for all-purpose reference mode. Up to 5 videos. Each video must be 1–15s, with a combined duration of ≤ 15s. Correspond to Video1, Video2, and "
+        },
+        {
+          "name": "reference_audio_urls",
+          "type": "array",
+          "media": true,
+          "accept": "audio",
+          "maxItems": 5,
+          "description": "Reference audio files for all-purpose reference mode. Up to 5 audio files. Each file must be 1–15s, with a combined duration of ≤ 15s. Correspond to Audio1, Aud"
+        },
+        {
           "name": "resolution",
           "type": "string",
           "enum": [
@@ -5599,6 +4975,9 @@
           "default": "5",
           "description": "Output video duration in seconds. Default: 5. When there is no video input, the value must be within [2, 30]. When reference videos are provided: input video du",
           "enum": [
+            "2",
+            "3",
+            "4",
             "5",
             "10",
             "15",
@@ -5690,6 +5069,10 @@
           "required": true,
           "description": "Required. Output video duration in seconds. PixVerse V6 supports 1–15 seconds.",
           "enum": [
+            "1",
+            "2",
+            "3",
+            "4",
             "5",
             "10",
             "15"
@@ -5752,6 +5135,10 @@
           "required": true,
           "description": "Generated video duration in seconds, ranging from 1 to 15. Required when template_id is not passed; if template_id is passed, the video duration is fixed by the",
           "enum": [
+            "1",
+            "2",
+            "3",
+            "4",
             "5",
             "10",
             "15"
@@ -5868,6 +5255,10 @@
           "required": true,
           "description": "Required. Output video duration in seconds. PixVerse V6 Max supports 1–15 seconds.",
           "enum": [
+            "1",
+            "2",
+            "3",
+            "4",
             "5",
             "10",
             "15"
@@ -5930,6 +5321,10 @@
           "required": true,
           "description": "Required. Output video duration in seconds. PixVerse V6 Max supports 1–15 seconds.",
           "enum": [
+            "1",
+            "2",
+            "3",
+            "4",
             "5",
             "10",
             "15"
@@ -6046,6 +5441,10 @@
           "required": true,
           "description": "Required. Output video duration in seconds. PixVerse V6 supports 1–15 seconds.",
           "enum": [
+            "1",
+            "2",
+            "3",
+            "4",
             "5",
             "10",
             "15"
@@ -6308,6 +5707,8 @@
           "max": 15,
           "description": "Output video duration in seconds. Integer, 3–15. Default 5.",
           "enum": [
+            "3",
+            "4",
             "5",
             "10",
             "15"
@@ -6353,6 +5754,8 @@
           "max": 15,
           "description": "The duration of the generated video, in seconds.  The value must be an integer in the range [3, 15]. Default: 5",
           "enum": [
+            "3",
+            "4",
             "5",
             "10",
             "15"
@@ -6442,6 +5845,8 @@
           "max": 15,
           "description": "The duration of the generated video, in seconds. Value range: An integer from 3 to 15.",
           "enum": [
+            "3",
+            "4",
             "5",
             "10",
             "15"
@@ -6614,69 +6019,43 @@
   {
     "id": "gemini-omni-flash",
     "kind": "video",
-    "label": "Gemini Omni Flash 1.1",
+    "label": "Gemini Omni Flash 1.2",
     "text": {
-      "path": "google/gemini-omni-flash-1-1",
-      "slug": "google/gemini-omni-flash-1-1",
+      "path": "google/gemini-omni-flash-1-2",
+      "slug": "google/gemini-omni-flash-1-2",
       "deprecated": false,
       "fields": [
         {
           "name": "prompt",
           "type": "string",
           "required": true,
-          "description": "The video prompt, used to describe the visual content, style, cinematography, or character actions of the target video."
-        },
-        {
-          "name": "image_urls",
-          "type": "array",
-          "media": true,
-          "accept": "image",
-          "description": "An array of image URLs. Multiple reference images can be uploaded to provide references for characters, scenes, styles, or storyboards."
-        },
-        {
-          "name": "first_frame_url",
-          "type": "string",
-          "media": true,
-          "accept": "image",
-          "description": "The URL of the first-frame image. Used to specify the starting frame of the generated video. Note: This field is mutually exclusive with `image_urls`, `audio_id"
-        },
-        {
-          "name": "last_frame_url",
-          "type": "string",
-          "media": true,
-          "accept": "image",
-          "description": "The URL of the last-frame image. Used to specify the ending frame of the generated video. Note: The last-frame image cannot be used alone and must be provided t"
-        },
-        {
-          "name": "audio_ids",
-          "type": "array",
-          "description": "An array of audio IDs generated by the `gemini-omni-audio` interface. Used to provide narration, dialogue, background music, or sound references for the video. "
-        },
-        {
-          "name": "character_ids",
-          "type": "array",
-          "description": "An array of character IDs generated by the `gemini-omni-character` interface. Used to provide character appearance, identity, or person references for the video"
+          "description": "Video prompt. Required and must be non-empty. Describe the scene, action, camera, and sound."
         },
         {
           "name": "duration",
-          "type": "string",
+          "type": "integer",
+          "min": 3,
+          "max": 15,
+          "description": "Duration of the generated video in seconds. Send an integer.",
           "enum": [
+            "3",
             "4",
-            "6",
-            "8",
-            "10"
+            "5",
+            "10",
+            "15"
           ],
-          "required": true,
-          "description": "The duration of the generated video, in seconds. Valid values are 4, 6, 8, and 10."
+          "default": "5"
         },
         {
           "name": "aspect_ratio",
           "type": "string",
           "enum": [
             "16:9",
-            "9:16"
+            "9:16",
+            "auto"
           ],
-          "description": "The aspect ratio of the generated video. `16:9` is landscape, and `9:16` is portrait."
+          "default": "16:9",
+          "description": "Aspect ratio of the generated video. Allowed values: `16:9`, `9:16`, `auto`. Default `16:9`. When no reference image is provided, `auto` is treated as `16:9`."
         },
         {
           "name": "resolution",
@@ -6688,115 +6067,583 @@
             "4k"
           ],
           "default": "720p",
-          "description": "The resolution of the generated video. Valid values are 360p, 720p, 1080p, and 4k."
+          "description": "Resolution of the generated video. Allowed values: `360p`, `720p`, `1080p`, `4k`. Default `720p`."
         },
         {
-          "name": "seed",
+          "name": "seeds",
           "type": "integer",
-          "description": "The random seed. Valid range: [0, 2147483647]. If not specified, the system will automatically generate a seed. A fixed seed can improve result reproducibility,"
+          "min": 10000,
+          "max": 99999,
+          "description": "Random seed. Range: 10000–99999. Send a single integer. If omitted, the system generates one."
+        },
+        {
+          "name": "image_urls",
+          "type": "array",
+          "media": true,
+          "accept": "image",
+          "maxItems": 6,
+          "description": "Reference image URLs, max **6**. Used for subject, scene, style, or storyboard reference. Two reference images are not treated as first/last frames."
+        },
+        {
+          "name": "character_ids",
+          "type": "array",
+          "maxItems": 2,
+          "description": "Character IDs, max **2**. IDs come from the create-character endpoint `/api/v1/omni/character/create`. You can only use characters you created yourself. Mutuall"
+        },
+        {
+          "name": "first_frame_url",
+          "type": "string",
+          "media": true,
+          "accept": "image",
+          "description": "First-frame image URL. Sets the starting frame of the generated video. Use a publicly accessible image URL."
+        },
+        {
+          "name": "last_frame_url",
+          "type": "string",
+          "media": true,
+          "accept": "image",
+          "description": "Last-frame image URL. Sets the ending frame. Must be sent together with `first_frame_url`; cannot be used alone. `duration` is then required and must be 3–10. W"
         }
       ]
     },
     "prices": [
       {
-        "d": "google/gemini-omni-flash-1-1, video, 360p with video input",
-        "c": 168,
-        "u": "item"
+        "d": "google/gemini-omni-flash-1-2, video, 4k",
+        "c": 22,
+        "u": "second"
       },
       {
-        "d": "google/gemini-omni-flash-1-1, video, 720p with video input",
-        "c": 168,
-        "u": "item"
+        "d": "google/gemini-omni-flash-1-2, video, 1080p",
+        "c": 10,
+        "u": "second"
       },
       {
-        "d": "google/gemini-omni-flash-1-1, video, 1080p with video input",
-        "c": 168,
-        "u": "item"
+        "d": "google/gemini-omni-flash-1-2, video, 720p",
+        "c": 9,
+        "u": "second"
       },
       {
-        "d": "google/gemini-omni-flash-1-1, video, 10s 360p no video input",
-        "c": 126,
-        "u": "item"
+        "d": "google/gemini-omni-flash-1-2, video, 360p",
+        "c": 4,
+        "u": "second"
+      }
+    ]
+  },
+  {
+    "id": "minimax-h3-reference",
+    "kind": "video",
+    "label": "MiniMax H3 Reference",
+    "image": {
+      "path": "minimax-h3/reference-to-video",
+      "slug": "minimax-h3/reference-to-video",
+      "deprecated": false,
+      "fields": [
+        {
+          "name": "prompt",
+          "type": "string",
+          "required": true,
+          "description": "Video generation prompt, length is between 1 and 7000 characters."
+        },
+        {
+          "name": "reference_image_urls",
+          "type": "array",
+          "media": true,
+          "accept": "image",
+          "maxItems": 9,
+          "description": "Array of reference image URLs. Supports up to 9 images. Publicly accessible HTTP(S) URL; supported image formats include JPG, JPEG, PNG, WEBP, HEIC, and HEIF; a"
+        },
+        {
+          "name": "reference_video_urls",
+          "type": "array",
+          "media": true,
+          "accept": "video",
+          "maxItems": 3,
+          "description": "Array of reference video URLs. Supports up to 3 videos. Supports MP4, MOV; video encoding supports H.264, H.265; a single file size cannot exceed 50 MB; the dur"
+        },
+        {
+          "name": "reference_audio_urls",
+          "type": "array",
+          "media": true,
+          "accept": "audio",
+          "maxItems": 3,
+          "description": "Array of reference audio URLs. Supports up to 3 audios. Supports WAV, MP3; a single file size cannot exceed 15 MB; the duration of a single segment is 2 to 15 s"
+        },
+        {
+          "name": "aspect_ratio",
+          "type": "string",
+          "enum": [
+            "adaptive",
+            "21:9",
+            "16:9",
+            "4:3",
+            "1:1",
+            "3:4",
+            "9:16"
+          ],
+          "default": "adaptive",
+          "description": "Video aspect ratio. The default is adaptive, or a specific ratio can be specified."
+        },
+        {
+          "name": "duration",
+          "type": "integer",
+          "enum": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15
+          ],
+          "default": 6,
+          "min": 4,
+          "max": 15,
+          "required": true,
+          "description": "The duration of the generated video, supporting integer values from 4 to 15 seconds."
+        },
+        {
+          "name": "resolution",
+          "type": "string",
+          "enum": [
+            "768P",
+            "2K"
+          ],
+          "default": "2K",
+          "description": "Video resolution."
+        }
+      ]
+    },
+    "prices": [
+      {
+        "d": "minimax h3, reference to video, 768p",
+        "c": 8,
+        "u": "second"
       },
       {
-        "d": "google/gemini-omni-flash-1-1, video, 10s 720p no video input",
-        "c": 126,
-        "u": "item"
+        "d": "minimax h3, reference to video, 2k",
+        "c": 13,
+        "u": "second"
+      }
+    ]
+  },
+  {
+    "id": "kling-3-omni-reference",
+    "kind": "video",
+    "label": "Kling 3.0 Omni Reference",
+    "image": {
+      "path": "kling/v3-omni-reference-to-video",
+      "slug": "kling-3.0-omni/reference-to-video",
+      "deprecated": false,
+      "fields": [
+        {
+          "name": "prompt",
+          "type": "string",
+          "required": true,
+          "description": "Video description. It must not be empty after leading and trailing whitespace is removed. Maximum length: 3,072 characters."
+        },
+        {
+          "name": "image_urls",
+          "type": "array",
+          "media": true,
+          "accept": "image",
+          "maxItems": 7,
+          "required": true,
+          "description": "Array of reference image URLs. The maximum number of images depends on the number and types of reference subjects. When there is no reference video and only mul"
+        },
+        {
+          "name": "duration",
+          "type": "integer",
+          "enum": [
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15
+          ],
+          "default": 5,
+          "min": 3,
+          "max": 15,
+          "description": "Total video duration in seconds. Optional; the default is 5 seconds. Supports integer values from 3 to 15."
+        },
+        {
+          "name": "resolution",
+          "type": "string",
+          "enum": [
+            "720p",
+            "1080p",
+            "4k"
+          ],
+          "default": "720p",
+          "description": "Video resolution. `720p` outputs a 720p video, `1080p` outputs a 1080p video, and `4k` outputs a 4K video."
+        },
+        {
+          "name": "aspect_ratio",
+          "type": "string",
+          "enum": [
+            "16:9",
+            "9:16",
+            "1:1"
+          ],
+          "default": "16:9",
+          "description": "When no video is provided, `16:9`, `9:16`, and `1:1` are supported."
+        },
+        {
+          "name": "audio",
+          "type": "boolean",
+          "description": "Whether to enable audio. When no video is provided, both `true` and `false` are supported.",
+          "default": false,
+          "label": "Sound"
+        }
+      ]
+    },
+    "prices": [
+      {
+        "d": "kling 3.0 omni, reference-to-video, 4k with native audio",
+        "c": 75.5,
+        "u": "second"
       },
       {
-        "d": "google/gemini-omni-flash-1-1, video, 10s 1080p no video input",
-        "c": 126,
-        "u": "item"
+        "d": "kling 3.0 omni, reference-to-video, 4k no native audio",
+        "c": 75.5,
+        "u": "second"
       },
       {
-        "d": "google/gemini-omni-flash-1-1, video, 4k with video input",
-        "c": 252,
-        "u": "item"
+        "d": "kling 3.0 omni, reference-to-video, 1080p with native audio",
+        "c": 25.2,
+        "u": "second"
       },
       {
-        "d": "google/gemini-omni-flash-1-1, video, 10s 4k no video input",
-        "c": 210,
-        "u": "item"
+        "d": "kling 3.0 omni, reference-to-video, 1080p no native audio",
+        "c": 20.2,
+        "u": "second"
       },
       {
-        "d": "google/gemini-omni-flash-1-1, video, 8s 360p no video input",
-        "c": 105,
-        "u": "item"
+        "d": "kling 3.0 omni, reference-to-video, 720p with native audio",
+        "c": 20.2,
+        "u": "second"
       },
       {
-        "d": "google/gemini-omni-flash-1-1, video, 8s 720p no video input",
-        "c": 105,
-        "u": "item"
+        "d": "kling 3.0 omni, reference-to-video, 720p no native audio",
+        "c": 15.1,
+        "u": "second"
+      }
+    ]
+  },
+  {
+    "id": "kling-3-omni-video",
+    "kind": "video",
+    "label": "Kling 3.0 Omni Video Reference",
+    "image": {
+      "path": "kling/v3-omni-reference-to-video",
+      "slug": "kling-3.0-omni/reference-to-video",
+      "deprecated": false,
+      "fields": [
+        {
+          "name": "prompt",
+          "type": "string",
+          "required": true,
+          "description": "Video description. It must not be empty after leading and trailing whitespace is removed. Maximum length: 3,072 characters."
+        },
+        {
+          "name": "image_urls",
+          "type": "array",
+          "media": true,
+          "accept": "image",
+          "maxItems": 4,
+          "required": true,
+          "description": "Array of reference image URLs. The maximum number of images depends on the number and types of reference subjects."
+        },
+        {
+          "name": "video_urls",
+          "type": "array",
+          "media": true,
+          "accept": "video",
+          "maxItems": 1,
+          "required": true,
+          "description": "Array of video URLs. Exactly 1 video is required. HTTP, HTTPS, and OSS URLs are supported. Videos must be in MP4 or MOV format; each file must not exceed 200 MB"
+        },
+        {
+          "name": "duration",
+          "type": "integer",
+          "enum": [
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15
+          ],
+          "default": 5,
+          "min": 3,
+          "max": 15,
+          "description": "Total video duration in seconds. Optional; the default is 5 seconds. Supports integer values from 3 to 15."
+        },
+        {
+          "name": "resolution",
+          "type": "string",
+          "enum": [
+            "720p",
+            "1080p",
+            "4k"
+          ],
+          "default": "720p",
+          "description": "Video resolution. `720p` outputs a 720p video, `1080p` outputs a 1080p video, and `4k` outputs a 4K video."
+        },
+        {
+          "name": "aspect_ratio",
+          "type": "string",
+          "enum": [
+            "16:9",
+            "9:16",
+            "1:1"
+          ],
+          "default": "16:9",
+          "description": "Video aspect ratio."
+        },
+        {
+          "name": "audio",
+          "type": "boolean",
+          "required": true,
+          "description": "No audio is generated when a video is provided; set false.",
+          "default": false,
+          "label": "Sound"
+        }
+      ]
+    },
+    "prices": [
+      {
+        "d": "kling 3.0 omni, reference-to-video, 4k with video input",
+        "c": 75.5,
+        "u": "second"
       },
       {
-        "d": "google/gemini-omni-flash-1-1, video, 8s 1080p no video input",
-        "c": 105,
-        "u": "item"
+        "d": "kling 3.0 omni, reference-to-video, 1080p with video input",
+        "c": 30.2,
+        "u": "second"
       },
       {
-        "d": "google/gemini-omni-flash-1-1, video, 8s 4k no video input",
-        "c": 189,
-        "u": "item"
+        "d": "kling 3.0 omni, reference-to-video, 720p with video input",
+        "c": 22.7,
+        "u": "second"
+      }
+    ]
+  },
+  {
+    "id": "kling-motion",
+    "kind": "video",
+    "label": "Kling 3.0 Motion Control",
+    "image": {
+      "path": "kling/motion-control-v3",
+      "slug": "kling-3.0/motion-control",
+      "deprecated": false,
+      "fields": [
+        {
+          "name": "prompt",
+          "type": "string",
+          "description": "(Optional) Text prompt words, used to guide the generation of animation content. Can be empty or 0 - 2500 characters long."
+        },
+        {
+          "name": "input_urls",
+          "type": "array",
+          "media": true,
+          "accept": "image",
+          "maxItems": 1,
+          "required": true,
+          "description": "(Required) Include a URL of an image"
+        },
+        {
+          "name": "video_urls",
+          "type": "array",
+          "media": true,
+          "accept": "video",
+          "maxItems": 1,
+          "required": true,
+          "description": "(Required) Include a video URL",
+          "label": "Motion video"
+        },
+        {
+          "name": "mode",
+          "type": "string",
+          "enum": [
+            "720p",
+            "1080p"
+          ],
+          "default": "720p",
+          "description": "Optional. Output resolution: \"720p\" (default) or \"1080p\".",
+          "label": "Quality"
+        },
+        {
+          "name": "character_orientation",
+          "type": "string",
+          "description": "(Optional) Reference source for character orientation. video: Refer to video (recommended); image: Refer to image. Default value: video",
+          "label": "Facing",
+          "enum": [
+            "video",
+            "image"
+          ],
+          "enumLabels": {
+            "video": "As in the video",
+            "image": "As in the image"
+          },
+          "default": "video"
+        }
+      ]
+    },
+    "prices": [
+      {
+        "d": "kling 3.0 motion control, video-to-video, 1080p",
+        "c": 30.2,
+        "u": "second"
       },
       {
-        "d": "google/gemini-omni-flash-1-1, video, 6s 360p no video input",
-        "c": 84,
-        "u": "item"
-      },
+        "d": "kling 3.0 motion control, video-to-video, 720p",
+        "c": 22.7,
+        "u": "second"
+      }
+    ]
+  },
+  {
+    "id": "kling-avatar",
+    "kind": "video",
+    "label": "Kling AI Avatar",
+    "image": {
+      "path": "kling/ai-avatar-standard",
+      "slug": "kling/ai-avatar-standard",
+      "deprecated": false,
+      "fields": [
+        {
+          "name": "image_url",
+          "type": "string",
+          "media": true,
+          "accept": "image",
+          "required": true,
+          "description": "The URL of the image to use as your avatar (File URL after upload, not file content; Accepted types: image/jpeg, image/png; Max size: 10.0MB)"
+        },
+        {
+          "name": "audio_url",
+          "type": "string",
+          "media": true,
+          "accept": "audio",
+          "required": true,
+          "description": "The URL of the audio file (must be the URL of the uploaded file, not the file content; supported formats: audio/mpeg, audio/wav, audio/x-wav, audio/aac, audio/m"
+        },
+        {
+          "name": "prompt",
+          "type": "string",
+          "required": true,
+          "description": "Required, non-empty. Describe the avatar's expression, movement and camera; the speech comes from audio_url. Up to 5,000 characters."
+        }
+      ]
+    },
+    "prices": [
       {
-        "d": "google/gemini-omni-flash-1-1, video, 6s 720p no video input",
-        "c": 84,
-        "u": "item"
-      },
+        "d": "kling ai avatar, lip sync, standard-720p (audio up to 5 minutes)",
+        "c": 10.1,
+        "u": "second"
+      }
+    ]
+  },
+  {
+    "id": "kling-avatar-pro",
+    "kind": "video",
+    "label": "Kling AI Avatar Pro",
+    "image": {
+      "path": "kling/ai-avatar-pro",
+      "slug": "kling/ai-avatar-pro",
+      "deprecated": false,
+      "fields": [
+        {
+          "name": "image_url",
+          "type": "string",
+          "media": true,
+          "accept": "image",
+          "required": true,
+          "description": "The URL of the image to use as your avatar (File URL after upload, not file content; Accepted types: image/jpeg, image/png; Max size: 10.0MB)"
+        },
+        {
+          "name": "audio_url",
+          "type": "string",
+          "media": true,
+          "accept": "audio",
+          "required": true,
+          "description": "The URL of the audio file (must be the URL of the uploaded file, not the file content; supported formats: audio/mpeg, audio/wav, audio/x-wav, audio/aac, audio/m"
+        },
+        {
+          "name": "prompt",
+          "type": "string",
+          "required": true,
+          "description": "Required, non-empty. Describe the avatar's expression, movement and camera; the speech comes from audio_url. Up to 5,000 characters."
+        }
+      ]
+    },
+    "prices": [
       {
-        "d": "google/gemini-omni-flash-1-1, video, 6s 1080p no video input",
-        "c": 84,
-        "u": "item"
-      },
+        "d": "kling ai avatar, lip sync, pro-1080p (audio up to 5 minutes)",
+        "c": 20.2,
+        "u": "second"
+      }
+    ]
+  },
+  {
+    "id": "omnihuman-2",
+    "kind": "video",
+    "label": "OmniHuman 2.0",
+    "image": {
+      "path": "omnihuman-2-0",
+      "slug": "omnihuman-2-0",
+      "deprecated": false,
+      "fields": [
+        {
+          "name": "image_urls",
+          "type": "array",
+          "media": true,
+          "accept": "image",
+          "required": true,
+          "description": "Source image URL. Only **one** image is supported. Pass it as a one-element array."
+        },
+        {
+          "name": "audio_url",
+          "type": "string",
+          "media": true,
+          "accept": "audio",
+          "required": true,
+          "description": "Audio URL that drives motion and lip sync."
+        },
+        {
+          "name": "prompt",
+          "type": "string",
+          "description": "Optional text prompt for precise control of the scene, character motion, and camera movement. Supported languages: Chinese, English, Japanese, Korean, Spanish ("
+        }
+      ],
+      "fixed": {
+        "enable_watermark": false
+      }
+    },
+    "prices": [
       {
-        "d": "google/gemini-omni-flash-1-1, video, 6s 4k no video input",
-        "c": 168,
-        "u": "item"
-      },
-      {
-        "d": "google/gemini-omni-flash-1-1, video, 4s 360p no video input",
-        "c": 63,
-        "u": "item"
-      },
-      {
-        "d": "google/gemini-omni-flash-1-1, video, 4s 720p no video input",
-        "c": 63,
-        "u": "item"
-      },
-      {
-        "d": "google/gemini-omni-flash-1-1, video, 4s 1080p no video input",
-        "c": 63,
-        "u": "item"
-      },
-      {
-        "d": "google/gemini-omni-flash-1-1, video, 4s 4k no video input",
-        "c": 147,
-        "u": "item"
+        "d": "omnihuman-2-0, avatar video, 720p",
+        "c": 14,
+        "u": "second"
       }
     ]
   },
@@ -6822,9 +6669,12 @@
           "max": 16,
           "description": "Video length in seconds. Integer from 3 to 16. ",
           "enum": [
+            "3",
+            "4",
             "5",
             "10",
-            "15"
+            "15",
+            "16"
           ]
         },
         {
@@ -6907,9 +6757,12 @@
           "max": 16,
           "description": "Video length in seconds. Integer from 3 to 16. ",
           "enum": [
+            "3",
+            "4",
             "5",
             "10",
-            "15"
+            "15",
+            "16"
           ]
         },
         {
@@ -6939,6 +6792,14 @@
           "maxItems": 15,
           "required": true,
           "description": "Reference image URLs (http/https), 1 to 15. JPG, JPEG, PNG or WEBP."
+        },
+        {
+          "name": "reference_audio_urls",
+          "type": "array",
+          "media": true,
+          "accept": "audio",
+          "maxItems": 3,
+          "description": "Optional reference audio URLs (http/https), up to 3. MP3 only, each 3-12 seconds and up to 50 MB."
         },
         {
           "name": "aspect_ratio",
@@ -7041,6 +6902,10 @@
           "max": 15,
           "description": "Video duration in seconds. Range: [1, 15]. Default: 8. Minimum: 1. Maximum: 15. Step: 1.",
           "enum": [
+            "1",
+            "2",
+            "3",
+            "4",
             "5",
             "10",
             "15"
@@ -7213,6 +7078,12 @@
           "description": "A description of the desired audio content. Optional."
         },
         {
+          "name": "midi_urls",
+          "type": "array",
+          "maxItems": 1,
+          "description": "MIDI references. Only effective when `custom_mode=false`."
+        },
+        {
           "name": "style",
           "type": "string",
           "description": "Music style specification for the generated audio."
@@ -7286,6 +7157,22 @@
           "name": "voice",
           "type": "string",
           "enum": [
+            "pNInz6obpgDQGcFmaJgB",
+            "Xb7hH8MSUJpSbSDYk0k2",
+            "pqHfZKP75CvOlQylNhV4",
+            "IKne3meq5aSn9XLyUdCD",
+            "iP95p4xoKVk53GoZ742B",
+            "onwK4e9ZLuTAKqWW03F9",
+            "cjVigY5qzO86Huf0OWal",
+            "JBFqnCBsd6RMkjVDRZzb",
+            "SOYHLrjzK2X1ezoPC6cr",
+            "cgSgspJ2msm6clMCkdW9",
+            "pFZP5JQG7iQjIQuC4Bku",
+            "XrExE9yKIg1WjnnlVkGX",
+            "SAz9YHcvj6GT2YYXdXww",
+            "CwhRBWXzGAHq8TQ4Fs17",
+            "EXAVITQu4vr4xnSDxMaL",
+            "bIHbv24MWmeRgasZH58o",
             "EkK5I93UQWFDigLMpZcX",
             "Z3R5wn05IrDiVCyEkUrK",
             "NNl6r8mD7vthiJatiJt1",
@@ -7355,6 +7242,22 @@
             "MJ0RnG71ty4LH3dvNfSd"
           ],
           "enumLabels": {
+            "pNInz6obpgDQGcFmaJgB": "Adam",
+            "Xb7hH8MSUJpSbSDYk0k2": "Alice",
+            "pqHfZKP75CvOlQylNhV4": "Bill",
+            "IKne3meq5aSn9XLyUdCD": "Charlie",
+            "iP95p4xoKVk53GoZ742B": "Chris",
+            "onwK4e9ZLuTAKqWW03F9": "Daniel",
+            "cjVigY5qzO86Huf0OWal": "Eric",
+            "JBFqnCBsd6RMkjVDRZzb": "George",
+            "SOYHLrjzK2X1ezoPC6cr": "Harry",
+            "cgSgspJ2msm6clMCkdW9": "Jessica",
+            "pFZP5JQG7iQjIQuC4Bku": "Lily",
+            "XrExE9yKIg1WjnnlVkGX": "Matilda",
+            "SAz9YHcvj6GT2YYXdXww": "River",
+            "CwhRBWXzGAHq8TQ4Fs17": "Roger",
+            "EXAVITQu4vr4xnSDxMaL": "Sarah",
+            "bIHbv24MWmeRgasZH58o": "Will",
             "EkK5I93UQWFDigLMpZcX": "James",
             "Z3R5wn05IrDiVCyEkUrK": "Arabella",
             "NNl6r8mD7vthiJatiJt1": "Bradford",
@@ -7449,6 +7352,22 @@
           "name": "voice",
           "type": "string",
           "enum": [
+            "pNInz6obpgDQGcFmaJgB",
+            "Xb7hH8MSUJpSbSDYk0k2",
+            "pqHfZKP75CvOlQylNhV4",
+            "IKne3meq5aSn9XLyUdCD",
+            "iP95p4xoKVk53GoZ742B",
+            "onwK4e9ZLuTAKqWW03F9",
+            "cjVigY5qzO86Huf0OWal",
+            "JBFqnCBsd6RMkjVDRZzb",
+            "SOYHLrjzK2X1ezoPC6cr",
+            "cgSgspJ2msm6clMCkdW9",
+            "pFZP5JQG7iQjIQuC4Bku",
+            "XrExE9yKIg1WjnnlVkGX",
+            "SAz9YHcvj6GT2YYXdXww",
+            "CwhRBWXzGAHq8TQ4Fs17",
+            "EXAVITQu4vr4xnSDxMaL",
+            "bIHbv24MWmeRgasZH58o",
             "EkK5I93UQWFDigLMpZcX",
             "Z3R5wn05IrDiVCyEkUrK",
             "NNl6r8mD7vthiJatiJt1",
@@ -7518,6 +7437,22 @@
             "MJ0RnG71ty4LH3dvNfSd"
           ],
           "enumLabels": {
+            "pNInz6obpgDQGcFmaJgB": "Adam",
+            "Xb7hH8MSUJpSbSDYk0k2": "Alice",
+            "pqHfZKP75CvOlQylNhV4": "Bill",
+            "IKne3meq5aSn9XLyUdCD": "Charlie",
+            "iP95p4xoKVk53GoZ742B": "Chris",
+            "onwK4e9ZLuTAKqWW03F9": "Daniel",
+            "cjVigY5qzO86Huf0OWal": "Eric",
+            "JBFqnCBsd6RMkjVDRZzb": "George",
+            "SOYHLrjzK2X1ezoPC6cr": "Harry",
+            "cgSgspJ2msm6clMCkdW9": "Jessica",
+            "pFZP5JQG7iQjIQuC4Bku": "Lily",
+            "XrExE9yKIg1WjnnlVkGX": "Matilda",
+            "SAz9YHcvj6GT2YYXdXww": "River",
+            "CwhRBWXzGAHq8TQ4Fs17": "Roger",
+            "EXAVITQu4vr4xnSDxMaL": "Sarah",
+            "bIHbv24MWmeRgasZH58o": "Will",
             "EkK5I93UQWFDigLMpZcX": "James",
             "Z3R5wn05IrDiVCyEkUrK": "Arabella",
             "NNl6r8mD7vthiJatiJt1": "Bradford",
@@ -7722,120 +7657,16 @@
       "deprecated": false,
       "fields": [
         {
-          "name": "type",
+          "name": "task_id",
           "type": "string",
-          "enum": [
-            "separate_vocal",
-            "split_stem",
-            "split_stem_advanced"
-          ],
-          "default": "separate_vocal",
-          "description": "Separation type, options:"
+          "required": true,
+          "description": "Unique identifier of the music generation task. This should be a task_id returned from the Generate Music or Extend Music endpoint."
         },
         {
-          "name": "stem_name",
+          "name": "audio_id",
           "type": "string",
-          "enum": [
-            "Lead Vocal",
-            "Drum Kit",
-            "Kick",
-            "Snare",
-            "Risers",
-            "Bass",
-            "Backing Vocals",
-            "Piano",
-            "Electric Guitar",
-            "Percussion",
-            "String Section",
-            "Synth",
-            "Acoustic Guitar",
-            "Sound Effects",
-            "Synth Pad",
-            "Synth Bass",
-            "Guitar",
-            "Brass Section",
-            "Organ",
-            "Electronic Drum Kit",
-            "Lead Electric Guitar",
-            "Synth Keys",
-            "Rhythm Electric Guitar",
-            "Electric Piano",
-            "Upright Bass",
-            "Keyboards",
-            "Distorted Electric Guitar",
-            "Synth Strings",
-            "Synth Lead",
-            "Woodwinds",
-            "Rhythm Acoustic Guitar",
-            "Flute",
-            "Harp",
-            "Tambourine",
-            "Trumpet",
-            "Arpeggiator",
-            "Accordion",
-            "Fiddle",
-            "Pedal Steel Guitar",
-            "Synth Voice",
-            "Violin",
-            "Digital Piano",
-            "Synth Brass",
-            "Mandolin",
-            "Choir",
-            "Banjo",
-            "Bells",
-            "Clarinet",
-            "Tenor Saxophone",
-            "Trombone",
-            "Shaker",
-            "French Horn",
-            "Glockenspiel",
-            "Electric Bass",
-            "Cello",
-            "Timpani",
-            "Harmonica",
-            "Marimba",
-            "Vibraphone",
-            "Lap Steel Guitar",
-            "Saxophone",
-            "Orchestra",
-            "Horns",
-            "Cymbals",
-            "Hand Clap",
-            "Oboe",
-            "Celesta",
-            "Congas",
-            "Drone",
-            "Alto Saxophone",
-            "Double Bass",
-            "Ukulele",
-            "Harpsichord",
-            "Baritone Saxophone",
-            "Xylophone",
-            "Tuba",
-            "Bass Guitar",
-            "Whistle",
-            "Lead Guitar",
-            "Rhodes",
-            "808",
-            "Bongos",
-            "Bassoon",
-            "Cowbell",
-            "Viola",
-            "Sitar",
-            "Steel Drums",
-            "Piccolo",
-            "Theremin",
-            "Bagpipes",
-            "Hi-Hat",
-            "Music Box",
-            "Melodica",
-            "Tabla",
-            "Koto",
-            "Djembe",
-            "Taiko",
-            "Didgeridoo"
-          ],
-          "description": "Only used when `type` is `split_stem_advanced` to request a specific stem track/instrument name."
+          "required": true,
+          "description": "Unique identifier of the specific audio track to process for vocal separation. This ID is returned in the callBackUrl data after music generation completes."
         }
       ]
     }

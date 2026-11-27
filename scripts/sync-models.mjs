@@ -53,31 +53,27 @@ const MODELS = [
 
   { id: 'kling-3', kind: 'video', label: 'Kling 3.0', text: 'kling/kling-3-0', // image_urls: first frame, then optional last frame
     fixed: { multi_shots: false }, hide: ['multi_prompt', 'kling_elements'],
-    override: { duration: secs(5, 10, 15), mode: { default: 'std' }, sound: { default: false }, aspect_ratio: { default: '16:9' }, image_urls: { maxItems: 2 } } },
+    override: { duration: { enum: ['3', '4', '5', '10', '15'], default: '5' }, mode: { default: 'std' }, sound: { default: false }, aspect_ratio: { default: '16:9' }, image_urls: { maxItems: 2 } } },
   { id: 'kling-4-keyframes', kind: 'video', label: 'Kling 4.0 Keyframes', text: 'kling/v4-keyframe-to-video', override: { duration: secs(5, 10) } },
   { id: 'veo-3-1', kind: 'video', label: 'Veo 3.1', text: 'https://docs.kie.ai/veo3-api/generate-veo-3-video.md',
     hide: ['generation_type'], override: { model: { label: 'Tier' }, image_urls: { maxItems: 3 } } },
-  { id: 'seedance-2', kind: 'video', label: 'Seedance 2.0', text: 'bytedance/seedance-2', override: { duration: secs(5, 10, 15) } },
+  { id: 'seedance-2', kind: 'video', label: 'Seedance 2.0', text: 'bytedance/seedance-2', price: '^bytedance/seedance-2, ' },
   { id: 'hailuo-2-3-pro', kind: 'video', label: 'Hailuo 2.3 Pro', image: 'hailuo/2-3-image-to-video-pro' },
-  { id: 'wan-2-7', kind: 'video', label: 'Wan 2.7', text: 'wan/2-7-text-to-video', image: 'wan/2-7-image-to-video', override: { duration: secs(5, 10, 15) } },
   { id: 'grok-imagine', kind: 'video', label: 'Grok Imagine', text: 'grok-imagine/text-to-video', image: 'grok-imagine/image-to-video',
     hide: ['task_id', 'index'], override: { duration: secs(6, 10, 15) } },
   { id: 'kling-2-6', kind: 'video', label: 'Kling 2.6', text: 'kling/text-to-video', image: 'kling/image-to-video', price: '^kling 2\\.6,' },
-  { id: 'kling-2-5-turbo', kind: 'video', label: 'Kling 2.5 Turbo Pro', text: 'kling/v25-turbo-text-to-video-pro', image: 'kling/v25-turbo-image-to-video-pro', price: '^kling 2\\.5 turbo,' },
   { id: 'kling-3-turbo', kind: 'video', label: 'Kling 3.0 Turbo', text: 'kling/v3-turbo-text-to-video', image: 'kling/v3-turbo-image-to-video', price: '^kling 3\\.0 turbo,' },
-  { id: 'kling-3-omni', kind: 'video', label: 'Kling 3.0 Omni', text: 'kling/v3-omni-text-to-video', hide: ['customize_multi_shots', 'prefer_multi_shots'], price: '^kling 3\\.0 omni, text' },
+  { id: 'kling-3-omni', kind: 'video', label: 'Kling 3.0 Omni', text: 'kling/v3-omni-text-to-video',
+    // Start frame, or start and end frames; the video takes the frame's shape.
+    image: { path: 'kling/v3-omni-image-to-video', option: 1, fixed: { aspect_ratio: 'auto' } },
+    hide: ['customize_multi_shots', 'prefer_multi_shots'], override: { audio: { default: false, label: 'Sound' } }, price: '^kling 3\\.0 omni, (text|image)' },
   { id: 'kling-4-reference', kind: 'video', label: 'Kling 4.0 Reference', text: 'kling/v4-reference-to-video', price: '^kling 4\\.0, reference' },
   { id: 'kling-4-flash-keyframes', kind: 'video', label: 'Kling 4.0 Flash Keyframes', text: 'kling/v4-flash-keyframe-to-video', price: '^kling 4\\.0 flash, keyframe' },
   { id: 'kling-4-flash-reference', kind: 'video', label: 'Kling 4.0 Flash Reference', text: 'kling/v4-flash-reference-to-video', price: '^kling 4\\.0 flash, reference' },
   { id: 'seedance-2-fast', kind: 'video', label: 'Seedance 2.0 Fast', text: 'bytedance/seedance-2-fast', price: '^bytedance/seedance-2 fast,' },
   { id: 'seedance-2-mini', kind: 'video', label: 'Seedance 2.0 Mini', text: 'bytedance/seedance-2-mini', price: '^bytedance/seedance-2-mini,' },
-  { id: 'seedance-2-5', kind: 'video', label: 'Seedance 2.5', text: 'bytedance/seedance-2-5', price: '^bytedance/seedance-2-5,' },
-  { id: 'seedance-1-pro', kind: 'video', label: 'Seedance 1 Pro', text: 'bytedance/v1-pro-text-to-video', image: 'bytedance/v1-pro-image-to-video', price: '^bytedance/seedance-v1-pro,' },
-  { id: 'seedance-1-lite', kind: 'video', label: 'Seedance 1 Lite', text: 'bytedance/v1-lite-text-to-video', image: 'bytedance/v1-lite-image-to-video', price: '^bytedance/seedance-v1-lite,' },
+  { id: 'seedance-2-5', kind: 'video', label: 'Seedance 2.5', text: 'bytedance/seedance-2-5', hide: ['omni_reference_task_type'], price: '^bytedance/seedance-2-5,' },
   { id: 'hailuo-2-3', kind: 'video', label: 'Hailuo 2.3 Standard', image: 'hailuo/2-3-image-to-video-standard', price: '^hailuo 2\\.3, image-to-video, standard' },
-  { id: 'hailuo-02-pro', kind: 'video', label: 'Hailuo 02 Pro', text: 'hailuo/02-text-to-video-pro', image: 'hailuo/02-image-to-video-pro', price: '^hailuo 02,.*pro-' },
-  { id: 'wan-2-6', kind: 'video', label: 'Wan 2.6', text: 'wan/2-6-text-to-video', image: 'wan/2-6-image-to-video', price: '^wan 2\\.6,' },
-  { id: 'wan-2-6-flash', kind: 'video', label: 'Wan 2.6 Flash', image: 'wan/2-6-flash-image-to-video', price: '^wan 2\\.6 flash, image' },
   { id: 'wan-3', kind: 'video', label: 'Wan 3.0', text: 'wan/3-0-video', hide: ['reference_file_urls', 'reference_link_urls'], price: '^wan 3\\.0 video,' },
   { id: 'wan-3-prime', kind: 'video', label: 'Wan 3.0 Prime', text: 'wan/3-0-video-prime', hide: ['reference_file_urls', 'reference_link_urls'], price: '^wan3\\.0 video prime' },
   { id: 'pixverse-6', kind: 'video', label: 'PixVerse V6', text: 'pixverse/text-to-video', image: 'pixverse/image-to-video',
@@ -89,7 +85,20 @@ const MODELS = [
   { id: 'happyhorse-1-1', kind: 'video', label: 'HappyHorse 1.1', text: 'happyhorse-1-1/text-to-video', image: 'happyhorse-1-1/image-to-video', price: '^happyhorse-1\\.1, (text|image)' },
   { id: 'happyhorse-1-1-reference', kind: 'video', label: 'HappyHorse 1.1 Reference', image: 'happyhorse-1-1/reference-to-video', price: '^happyhorse-1\\.1, reference' },
   { id: 'gemini-omni-video', kind: 'video', label: 'Gemini Omni Video', text: 'gemini-omni-video', price: '^gemini-omni-video,' },
-  { id: 'gemini-omni-flash', kind: 'video', label: 'Gemini Omni Flash 1.1', text: 'google/gemini-omni-flash-1-1', price: '^google/gemini-omni-flash-1-1,' },
+  { id: 'gemini-omni-flash', kind: 'video', label: 'Gemini Omni Flash 1.2', text: 'google/gemini-omni-flash-1-2', hide: ['video_list'], price: '^google/gemini-omni-flash-1-2,' },
+  { id: 'minimax-h3-reference', kind: 'video', label: 'MiniMax H3 Reference', image: 'minimax-h3/reference-to-video', price: '^minimax h3, reference' },
+  { id: 'kling-3-omni-reference', kind: 'video', label: 'Kling 3.0 Omni Reference', image: { path: 'kling/v3-omni-reference-to-video', option: 0 },
+    hide: ['customize_multi_shots', 'prefer_multi_shots'], override: { audio: { default: false, label: 'Sound' } }, price: '^kling 3\\.0 omni, reference-to-video, \\w+ (with|no) native' },
+  // Images plus one reference video (a camera move, an action, a style to follow); billed at its "with video input" rate.
+  { id: 'kling-3-omni-video', kind: 'video', label: 'Kling 3.0 Omni Video Reference', image: { path: 'kling/v3-omni-reference-to-video', option: 2 },
+    override: { audio: { default: false, label: 'Sound' } }, price: '^kling 3\\.0 omni, reference-to-video, \\w+ with video input' },
+  // Moves your character the way the person in a video moves (a dance, a gesture, a trend).
+  { id: 'kling-motion', kind: 'video', label: 'Kling 3.0 Motion Control', image: 'kling/motion-control-v3', price: '^kling 3\\.0 motion control',
+    override: { video_urls: { label: 'Motion video' }, mode: { label: 'Quality' }, character_orientation: { label: 'Facing', enum: ['video', 'image'], enumLabels: { video: 'As in the video', image: 'As in the image' }, default: 'video' } } },
+  // A photo and a voice track become a person talking to the camera.
+  { id: 'kling-avatar', kind: 'video', label: 'Kling AI Avatar', image: 'kling/ai-avatar-standard', price: '^kling ai avatar, lip sync, standard' },
+  { id: 'kling-avatar-pro', kind: 'video', label: 'Kling AI Avatar Pro', image: 'kling/ai-avatar-pro', price: '^kling ai avatar, lip sync, pro' },
+  { id: 'omnihuman-2', kind: 'video', label: 'OmniHuman 2.0', image: 'omnihuman-2-0', fixed: { enable_watermark: false }, price: '^omnihuman-2-0' },
   { id: 'vidu-q4', kind: 'video', label: 'Vidu Q4', image: 'vidu-q4/image-to-video', price: '^vidu q4, image' },
   { id: 'vidu-q4-reference', kind: 'video', label: 'Vidu Q4 Reference', image: 'vidu-q4/reference-to-video', price: '^vidu q4, reference' },
   { id: 'grok-imagine-1-5', kind: 'video', label: 'Grok Imagine 1.5 Preview', image: 'grok-imagine/1-5-preview', price: '^grok-imagine-video-1-5-preview' },
@@ -130,30 +139,33 @@ function durationChips(p, desc) {
   const lo = p.minimum ?? (r ? Number(r[1]) : undefined)
   const hi = p.maximum ?? (r ? Number(r[2]) : undefined)
   if (lo === undefined || hi === undefined || hi <= lo) return {}
-  let opts = [5, 10, 15, 20, 30].filter((s) => s >= lo && s <= hi)
-  if (!opts.length) opts = [lo, hi]
-  const def = opts.includes(Number(p.default)) ? Number(p.default) : opts[0]
+  // Every second up to 5 (ad shots are about 3 s, and video is billed per second), then 10, 15, 20, 30, plus both ends.
+  const opts = [...new Set([lo, 2, 3, 4, 5, 10, 15, 20, 30, hi])].filter((s) => s >= lo && s <= hi).sort((a, b) => a - b)
+  const def = opts.includes(Number(p.default)) ? Number(p.default) : opts.includes(5) ? 5 : opts[0]
   return { enum: opts.map(String), default: String(def) }
 }
 
-async function spec(path, m) {
+// A variant is a docs path, or { path, option, hide, fixed } when it needs its own settings. `option` picks one of the
+// input shapes a doc offers (oneOf), e.g. Kling 3.0 Omni's "First and Last Frames".
+async function spec(src, m) {
+  const { path, option = 0, hide = [], fixed: own } = typeof src === 'string' ? { path: src } : src
+  const fixed = (m.fixed || own) && { ...m.fixed, ...own }
   const yaml = await fetchSpec(path)
   const [endpoint, ops] = Object.entries(parse(yaml).paths)[0]
   if (endpoint !== '/api/v1/jobs/createTask') throw new Error(`${path}: custom endpoint ${endpoint}, needs an adapter`)
   const content = ops.post.requestBody.content['application/json']
   const body = content.schema.properties
-  const input = body.input ?? {}
+  const input = body.input?.oneOf?.[option] ?? body.input ?? {}
   const props = input.properties ?? {}
   const order = [...new Set([...(input['x-apidog-orders'] ?? []), ...Object.keys(props)])].filter((n) => props[n])
   const fields = []
   for (const name of order) {
-    if (HIDE.includes(name) || m.hide?.includes(name) || name in (m.fixed ?? {})) continue
+    if (HIDE.includes(name) || m.hide?.includes(name) || hide.includes(name) || name in (fixed ?? {})) continue
     const p = props[name]
     const desc = String(p.description ?? '')
     const required = (input.required ?? []).includes(name) || /^\s*required\b/i.test(desc)
     const media = p.format === 'uri' || p.items?.format === 'uri' || (/url|image/i.test(name) && /url|upload/i.test(desc)) || /image_urls?$/i.test(name)
     const accept = !media ? undefined : /video|clip/i.test(name) ? 'video' : /audio/i.test(name) ? 'audio' : 'image'
-    if (media && accept !== 'image' && !required) continue // only image slots in the prompt bar for now
     if (!media && (p.type === 'object' || (p.type === 'array' && p.items?.type === 'object'))) continue
     fields.push({
       name,
@@ -179,7 +191,7 @@ async function spec(path, m) {
   const tags = [...new Set([...mainDesc.matchAll(/`@([a-z][a-z_]*?\d*)`/g)].map((x) => x[1]))]
   const slug = body.model?.enum?.[0] ?? body.model?.default ?? m.slug ?? content.example?.model
   if (!slug) throw new Error(`${path}: no model name; add slug to its MODELS line`)
-  return { path, slug, deprecated: !!ops.post.deprecated, fields, ...(m.fixed && { fixed: m.fixed }), ...(tags.length && { tags }) }
+  return { path, slug, deprecated: !!ops.post.deprecated, fields, ...(fixed && { fixed }), ...(tags.length && { tags }) }
 }
 
 // kie's public price list (the table behind kie.ai/pricing), fetched once per sync.

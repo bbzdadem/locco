@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { chatModel, type ChatModel } from '../shared/models'
 import { estimate, USD_PER_CREDIT } from '../shared/prices'
 import type { Attachment, Chat, ChatEvent, ChatHit, MediaKind, Message, Project, SendRequest, ToolCall } from '../shared/types'
+import { claudeBlocks, claudeStream } from './claude'
 import { claudeTool, openaiTool, planCall, responsesTool, systemAddon, TOOL } from './assistant'
 import { db, getSetting, spend } from './db'
 import { stream } from './kie'
@@ -209,7 +210,7 @@ function systemPrompt(ctx: Ctx) {
 }
 
 async function request(model: ChatModel, history: Message[], thinking: boolean, ctx: Ctx) {
-  // Failed replies are skipped, which can leave two user turns in a row. Merge them: kie's Claude proxy rejects that shape.
+  // Failed replies are skipped, which can leave two user turns in a row. Merge them into one turn.
   const turns: { role: Message['role']; text: string; attachments: Attachment[] }[] = []
   for (const m of history.filter((m) => !m.error && (m.text.trim() || m.attachments.length || m.calls?.length))) {
     const prev = turns.at(-1)
@@ -220,16 +221,12 @@ async function request(model: ChatModel, history: Message[], thinking: boolean, 
   if (ctx.project?.files.length && turns[0]?.role === 'user') turns[0].attachments.unshift(...ctx.project.files)
   const system = systemPrompt(ctx)
   if (model.api === 'claude') {
-    // kie's Claude proxy can't take files (tested 8 Nov 2026): base64 and url image blocks fail every time, and
-    // OpenAI-style image_url is silently dropped. Claude gets file names and ids (enough to pass them to the tool).
-    // ponytail: re-test {type:'image', source:{type:'base64'}} blocks when kie fixes it, then send files again.
-    return {
-      path: '/claude/v1/messages',
-      body: {
-        model: model.id, system, max_tokens: 16000, tools: [claudeTool()],
-        messages: turns.map((t) => ({ role: t.role, content: t.text })), ...(thinking && { thinkingFlag: true }),
-      },
-    }
+    // Claude runs on your own Anthropic key (Settings); images and PDFs go in as they are.
+    const messages = await Promise.all(turns.map(async (t) => {
+      const files = t.role === 'user' ? await claudeBlocks(t.attachments) : []
+      return { role: t.role, content: files.length ? [...files, { type: 'text', text: t.text || ' ' }] : t.text }
+    }))
+    return { path: '', body: { model: model.id, system, max_tokens: 16000, tools: [claudeTool()], messages, ...(thinking && { thinkingFlag: true }) } }
   }
   if (model.api === 'responses') {
     // GPT 6 (OpenAI Responses format): files go in as hosted URLs, which GPT can actually read.
@@ -313,8 +310,8 @@ function read(model: ChatModel, e: any, tools: ToolBuf): { text?: string; thinki
 }
 
 // One model call: streams pieces to onDelta and tool calls into `tools`, returns the credits kie reported.
-// kie's Claude endpoint often fails with "Internal error" within a second, before generating anything
-// (measured 8 Nov 2026: 25–40% of requests succeed, sometimes far fewer). Those failures are free, so retry quietly.
+// kie's models now and then fail with "Internal error" within a second, before generating anything. Those failures are
+// free, so retry quietly.
 const TRANSIENT = /internal|interal|exception|try again|fetch failed|code 52\d/i
 async function turn(model: ChatModel, path: string, body: object, signal: AbortSignal, tools: ToolBuf, onDelta: (text?: string, thinking?: string) => void) {
   for (let attempt = 0; ; attempt++) {
@@ -322,7 +319,7 @@ async function turn(model: ChatModel, path: string, body: object, signal: AbortS
     let gotText = false
     let credits: number | undefined
     try {
-      for await (const e of stream(path, body, signal)) {
+      for await (const e of model.api === 'claude' ? claudeStream(body, signal) : stream(path, body, signal)) {
         const d = read(model, e, tools)
         if (d.textIfNone && !gotText) d.text = d.textIfNone
         if (d.credits != null) credits = d.credits
@@ -338,14 +335,15 @@ async function turn(model: ChatModel, path: string, body: object, signal: AbortS
 }
 
 // A single answer with no tools and no chat: improving a prompt, summarizing a long chat.
-// `images` are shown to the model too (GPT 6 Sol only).
-// deep: think hard first (writing, directing); off for quick jobs. Claude gets text only (kie's Claude can't take images).
+// `images` are shown to the model too (GPT 6 Sol, and Claude on your own key).
+// deep: think hard first (writing, directing); off for quick jobs.
 export async function complete(modelId: string, system: string, user: string, signal = new AbortController().signal, images: Attachment[] = [], deep = false) {
   const model = chatModel(modelId)
   const pictures = model.api === 'responses' ? await Promise.all(images.map(async (a) => ({ type: 'input_image', image_url: await kieUrlFor(a) }))) : []
+  const claudeFiles = model.api === 'claude' ? await claudeBlocks(images) : []
   const effort = deep ? 'high' : 'low'
   const { path, body } = model.api === 'claude'
-    ? { path: '/claude/v1/messages', body: { model: model.id, system, max_tokens: 16000, messages: [{ role: 'user', content: user }], ...(deep && { thinkingFlag: true }) } }
+    ? { path: '', body: { model: model.id, system, max_tokens: 16000, messages: [{ role: 'user', content: claudeFiles.length ? [...claudeFiles, { type: 'text', text: user }] : user }], ...(deep && { thinkingFlag: true }) } }
     : model.api === 'responses'
     ? { path: '/codex/v1/responses', body: { model: model.id, reasoning: { effort }, input: [
         { role: 'developer', content: [{ type: 'input_text', text: system }] }, { role: 'user', content: [{ type: 'input_text', text: user }, ...pictures] }] } }
@@ -360,8 +358,16 @@ export async function complete(modelId: string, system: string, user: string, si
   }
 }
 
+async function orGpt(first: string, system: string, user: string) {
+  try {
+    return await complete(first, system, user)
+  } catch {
+    return complete('gpt-6-sol', system, user)
+  }
+}
+// Claude Sonnet improves the prompt; GPT 6 Sol does if Claude can't (no Claude key).
 export const enhancePrompt = (prompt: string, kind: MediaKind, modelLabel: string) =>
-  complete('gpt-6-sol', [
+  orGpt('claude-sonnet-5-5', [
     `Rewrite the user's idea as one strong prompt for ${modelLabel}, a ${kind === 'audio' ? 'music' : kind} generation model.`,
     'Keep their intent, subject, language and any text they want shown. Keep references like @img1 exactly as written.',
     kind === 'image' ? 'Add specifics: subject details, setting, composition, lighting, colour, style or medium, lens.'

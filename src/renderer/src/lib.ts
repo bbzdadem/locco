@@ -11,10 +11,25 @@ export const errMsg = (e: unknown) => String((e as Error)?.message ?? e).replace
 export const mediaUrl = (ref: Ref) => `locco://${ref.kind}/${encodeURIComponent(ref.file)}`
 export const ACCEPT_CHAT = 'image/png,image/jpeg,image/webp,image/gif,application/pdf'
 export const ACCEPT_IMAGES = 'image/png,image/jpeg,image/webp'
+export const ACCEPT_VIDEO = 'video/mp4,video/quicktime'
+export const ACCEPT_AUDIO = 'audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/x-m4a,audio/aac'
 
 export async function toAttachments(files: FileList | File[], accept: string): Promise<Attachment[]> {
   const ok = [...files].filter((f) => accept.split(',').includes(f.type))
   return Promise.all(ok.map(async (f) => api.saveFile(f.name || 'pasted.png', f.type, new Uint8Array(await f.arrayBuffer()))))
+}
+
+// How long an attached video runs, read once from the file; 0 until known, then done() is called to redraw.
+const lengths = new Map<string, number>()
+export function videoLength(ref: Ref, done: () => void) {
+  if (!lengths.has(ref.file)) {
+    lengths.set(ref.file, 0)
+    const v = document.createElement('video')
+    v.preload = 'metadata'
+    v.onloadedmetadata = () => (lengths.set(ref.file, Math.ceil(v.duration) || 0), done())
+    v.src = mediaUrl(ref)
+  }
+  return lengths.get(ref.file)!
 }
 
 export function load<T>(key: string, fallback: T): T {

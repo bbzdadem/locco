@@ -77,6 +77,7 @@ export function CharacterBuilder({ id, tasks, usedIn, onClose }: { id: string; t
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [, redraw] = useState(0)
   const [count, setCount] = useState(1)
+  const [choosing, setChoosing] = useState(false)
   const picker = useRef<HTMLInputElement>(null)
   const closeRef = useRef(onClose)
   useEffect(() => {
@@ -130,6 +131,9 @@ export function CharacterBuilder({ id, tasks, usedIn, onClose }: { id: string; t
   })
   // Picking only picks: the angles are optional (step 3). Angles made from an earlier pick no longer match, so they go.
   const pick = (taskId: string) => set({ portraitTask: taskId, sheetTask: undefined })
+  // Any finished image can stand in as the sheet (or angles), newest first.
+  const made = Object.values(tasks).filter((t) => t.state === 'success' && /\.(png|jpe?g|webp)$/i.test(t.files[0] ?? '') && t.id !== c.sheetTask)
+    .sort((a, b) => b.createdAt - a.createdAt)
   const makeSheet = () => act('sheet', async () => {
     const [sheetTask] = await makeOne(im, { aspect_ratio: '16:9', resolution: '1K' }, sheetRefs(portrait!), sheetPrompt(c))
     set({ sheetTask })
@@ -255,6 +259,22 @@ export function CharacterBuilder({ id, tasks, usedIn, onClose }: { id: string; t
               {busy === 'sheet' ? <LoaderCircle size={14} className="animate-spin" /> : c.sheetTask ? <RotateCcw size={13} /> : <Plus size={15} />}
               {c.sheetTask ? (el ? 'Redo angles' : 'Redo sheet') : el ? 'Make more angles' : 'Make reference sheet'} <span className="font-normal opacity-70">({priceAt('16:9')})</span>
             </button>
+          )}
+          {portrait && made.length > 0 && (
+            <button type="button" onClick={() => setChoosing((v) => !v)}
+              className="inline-flex h-8 w-fit items-center gap-1.5 rounded-full border border-line px-3 text-[13px] text-muted hover:bg-raised hover:text-fg">
+              <ImagePlus size={13} /> {choosing ? 'Close' : `Use an image you already made${c.sheetTask ? ' instead' : ''}`}
+            </button>
+          )}
+          {choosing && (
+            <div className="grid max-h-72 grid-cols-[repeat(auto-fill,minmax(110px,1fr))] gap-2 overflow-y-auto rounded-xl border border-line p-2">
+              {made.map((t) => (
+                <button key={t.id} type="button" title={t.prompt} onClick={() => (set({ sheetTask: t.id }), setChoosing(false))}
+                  className="aspect-square overflow-hidden rounded-lg bg-raised hover:ring-2 hover:ring-fg">
+                  <img src={mediaUrl({ kind: 'media', file: t.files[0] })} alt={t.prompt.slice(0, 60)} loading="lazy" className="size-full object-cover" />
+                </button>
+              ))}
+            </div>
           )}
           <p className="text-xs text-faint">
             {!c.sheetTask

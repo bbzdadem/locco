@@ -1,4 +1,4 @@
-import { ArrowUp, Brain, Check, ChevronDown, Clapperboard, Copy, Download, FileDown, FileText, Folder, FolderOpen, Image, LoaderCircle, Mic, Music, Paperclip, Pause, Pencil, RotateCcw, Route, Square, TriangleAlert, Volume2, X } from 'lucide-react'
+import { ArrowUp, Brain, Check, ChevronDown, Clapperboard, Copy, FileDown, FileText, Folder, FolderOpen, Image, LoaderCircle, Mic, Music, Paperclip, Pause, Pencil, RotateCcw, Route, Square, TriangleAlert, Volume2, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { bestFor, CHAT_MODELS, chatModel, withBest } from '../../shared/models'
 import { estimate, priceLabel, USD_PER_CREDIT } from '../../shared/prices'
@@ -134,6 +134,7 @@ export function ChatView({ chatId, chat, project, draft, defaultModel, header, o
     <Composer
       busy={busy}
       autoFocus
+      draftKey={chatId}
       initialFiles={draft}
       model={model}
       onModel={setModel}
@@ -452,9 +453,13 @@ function AssistantMessage({ message, streaming, isLast, onRegenerate, tasks = {}
   )
 }
 
-function Composer({ busy, autoFocus, initialFiles, model, onModel, thinking, onThinking, agent, onAgent, onSend, onStop }: {
+// Unsent composer text per chat, so switching to Create/Edit and back keeps it.
+const drafts = new Map<string, { text: string; files: Attachment[] }>()
+
+function Composer({ busy, autoFocus, draftKey, initialFiles, model, onModel, thinking, onThinking, agent, onAgent, onSend, onStop }: {
   busy: boolean
   autoFocus?: boolean
+  draftKey: string
   initialFiles?: Attachment[]
   model: string
   onModel: (m: string) => void
@@ -465,8 +470,12 @@ function Composer({ busy, autoFocus, initialFiles, model, onModel, thinking, onT
   onSend: (text: string, attachments: Attachment[]) => void
   onStop: () => void
 }) {
-  const [text, setText] = useState('')
-  const [files, setFiles] = useState<Attachment[]>(initialFiles ?? [])
+  const [text, setText] = useState(() => drafts.get(draftKey)?.text ?? '')
+  const [files, setFiles] = useState<Attachment[]>(() => drafts.get(draftKey)?.files ?? initialFiles ?? [])
+  useEffect(() => {
+    if (text || files.length) drafts.set(draftKey, { text, files })
+    else drafts.delete(draftKey)
+  }, [draftKey, text, files])
   const [dragging, setDragging] = useState(false)
   const [note, setNote] = useState('')
   const area = useRef<HTMLTextAreaElement>(null)
@@ -621,22 +630,6 @@ function Composer({ busy, autoFocus, initialFiles, model, onModel, thinking, onT
           <Route size={14} /> Agent
         </button>
         {note && <span className="truncate text-xs text-muted">{note}</span>}
-        {!note && agent && chatModel(model).api === 'claude' && (
-          <span className="truncate text-xs text-muted">
-            Claude can't see images on kie, so it can't check its results.{' '}
-            <button type="button" onClick={() => onModel('gpt-6-sol')} className="font-medium text-fg underline underline-offset-2">
-              Use GPT 6 Sol
-            </button>
-          </span>
-        )}
-        {!note && !agent && files.length > 0 && chatModel(model).api === 'claude' && (
-          <span className="truncate text-xs text-muted">
-            Claude can't see files on kie yet, but can still edit or animate them.{' '}
-            <button type="button" onClick={() => onModel('gpt-6-sol')} className="font-medium text-fg underline underline-offset-2">
-              Ask GPT 6 Sol instead
-            </button>
-          </span>
-        )}
         <div className="ml-auto" />
         {busy ? (
           <button type="button" title="Stop" aria-label="Stop" onClick={onStop} className="flex size-8 items-center justify-center rounded-full bg-inverse text-on-inverse">
@@ -726,9 +719,6 @@ function CallCard({ call, tasks, onRun, onCancel }: { call: ToolCall; tasks: Rec
           <div key={file} className="flex flex-col gap-1.5">
             <Media file={file} alt={call.prompt} controls={isVideo(file)} className="max-h-[420px] w-fit max-w-full rounded-xl object-contain" />
             <div className="-ml-1.5 flex">
-              <IconButton title="Save as…" className="size-7" onClick={() => api.saveAs({ kind: 'media', file })}>
-                <Download size={14} />
-              </IconButton>
               <IconButton title="Show in Finder" className="size-7" onClick={() => api.reveal({ kind: 'media', file })}>
                 <FolderOpen size={14} />
               </IconButton>

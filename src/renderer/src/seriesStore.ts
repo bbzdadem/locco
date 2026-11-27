@@ -70,13 +70,29 @@ const enumOf = (m: MediaModel, name: string) => spec(m).fields.find((f) => f.nam
 export const lengths = (m: MediaModel) => enumOf(m, 'duration').map(Number).filter((n) => n > 0).sort((a, b) => a - b)
 // Shortest clip that covers the scene (the cut trims it to the exact length, or holds the last frame if even the longest is short).
 export const clipFor = (m: MediaModel, seconds: number) => shortestClip(lengths(m), seconds)
+// A model's quality options as picture heights: its resolution (480p, 768P, 2K, 4k), or Kling 3.0's mode (std, pro, 4K).
+const heightOf = (v: string) => ({ std: 720, pro: 1080, '2k': 1440, '4k': 2160 })[v.toLowerCase()] ?? parseInt(v)
+const qualityField = (m: MediaModel) => (has(m, 'resolution') ? 'resolution' : m.id.startsWith('kling') && has(m, 'mode') ? 'mode' : undefined)
+export const qualities = (m: MediaModel) => {
+  const f = qualityField(m)
+  return f ? enumOf(m, f).map((value) => ({ value, height: heightOf(String(value)) })).sort((a, b) => a.height - b.height) : []
+}
+// The model's best option at or below the chosen height (1080p unless chosen), else its lowest.
+export const qualityOf = (m: MediaModel, target = 1080) => {
+  const q = qualities(m)
+  return q.filter((x) => x.height <= target).at(-1) ?? q[0]
+}
+export const heightLabel = (h: number) => (h >= 2160 ? '4K' : h >= 1440 ? '2K' : `${h}p`)
 // Videos are silent unless the series turns video sound on: the voices come from the script.
-export function videoValues(m: MediaModel, seconds: number, sound: boolean) {
-  const v: Record<string, unknown> = { aspect_ratio: '9:16', duration: String(clipFor(m, seconds)), resolution: enumOf(m, 'resolution')[0] }
+export function videoValues(m: MediaModel, seconds: number, sound: boolean, quality?: number) {
+  const v: Record<string, unknown> = { aspect_ratio: '9:16', duration: String(clipFor(m, seconds)) }
+  const f = qualityField(m)
+  if (f) v[f] = qualityOf(m, quality)?.value
+  // Hailuo makes 10 s clips only at 768P.
+  if (v.resolution === '1080P' && v.duration === '10' && m.id.startsWith('hailuo')) v.resolution = '768P'
   if (has(m, 'sound')) v.sound = sound
   if (has(m, 'generate_audio')) v.generate_audio = sound
   if (has(m, 'audio')) v.audio = sound
-  if (has(m, 'mode') && m.id.startsWith('kling')) v.mode = 'std'
   return v
 }
 export const img = (file: string): Attachment => ({ kind: 'media', file, name: file, mime: 'image/png' })

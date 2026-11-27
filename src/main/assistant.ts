@@ -97,7 +97,8 @@ export function planCall(args: any, files: Attachment[]): ToolCall {
     if (!hit) notes.push(`Couldn't find image "${w}".`)
     return hit ? [hit] : []
   })
-  const { variant, input, missing } = buildInput(model, values, fill({}, slotsOf(model), images))
+  const { variant, input, missing, notes: fixed } = buildInput(model, values, fill({}, slotsOf(model), images))
+  notes.push(...fixed)
   if (images.length && !slotsOf(model).length) notes.push(`${model.label} doesn't take images, so they were left out.`)
   return {
     id: randomUUID(),

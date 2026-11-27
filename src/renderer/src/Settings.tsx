@@ -10,6 +10,7 @@ export function SettingsDialog({ settings, onClose, onSaved }: { settings: Setti
   const welcome = !settings.hasKey
   const [key, setKey] = useState('')
   const [elevenKey, setElevenKey] = useState('')
+  const [claudeKey, setClaudeKey] = useState('')
   const [about, setAbout] = useState(settings.about)
   const [model, setModel] = useState(settings.model)
   const [budget, setBudget] = useState(String(settings.agentBudget))
@@ -22,11 +23,11 @@ export function SettingsDialog({ settings, onClose, onSaved }: { settings: Setti
     setBusy(true)
     setError('')
     try {
-      onSaved(await api.saveSettings({ ...(key.trim() && { apiKey: key }), ...(elevenKey.trim() && { elevenKey }), about, model, agentBudget: Number(budget) || settings.agentBudget }))
+      onSaved(await api.saveSettings({ ...(key.trim() && { apiKey: key }), ...(elevenKey.trim() && { elevenKey }), ...(claudeKey.trim() && { claudeKey }), about, model, agentBudget: Number(budget) || settings.agentBudget }))
       onClose()
     } catch (err) {
       const msg = errMsg(err)
-      setError(msg.includes('ElevenLabs') ? msg : msg.includes('401') || /access|auth/i.test(msg) ? 'kie rejected that key. Check it and paste it again.' : msg)
+      setError(/ElevenLabs|Anthropic/.test(msg) ? msg : msg.includes('401') || /access|auth/i.test(msg) ? 'kie rejected that key. Check it and paste it again.' : msg)
     } finally {
       setBusy(false)
     }
@@ -100,6 +101,31 @@ export function SettingsDialog({ settings, onClose, onSaved }: { settings: Setti
               <VoiceTools onChange={() => {}} />
             </span>
           )}
+        </label>
+
+        <label className="flex flex-col gap-2">
+          <span className="font-medium">Claude API key</span>
+          <input
+            id="claude-key"
+            type="password"
+            value={claudeKey}
+            onChange={(e) => setClaudeKey(e.target.value)}
+            placeholder={settings.hasClaude ? 'Paste a new key to replace it' : 'Paste your Anthropic key'}
+            className="h-10 rounded-xl border border-line bg-bg px-3 font-mono text-[13px] focus:border-fg"
+          />
+          <span className="text-xs text-muted">
+            {settings.hasClaude ? 'Saved, encrypted on this Mac.' : 'Needed for the Claude models (chat and script writing), billed to your Anthropic account. Without it, scripts are written by GPT 6 Sol.'}{' '}
+            Make one at{' '}
+            <a href="https://platform.claude.com/settings/keys" target="_blank" rel="noreferrer" className="underline underline-offset-2">
+              platform.claude.com › API keys
+            </a>
+            .
+            {settings.hasClaude && (
+              <button type="button" className="ml-1 underline underline-offset-2" onClick={async () => onSaved(await api.saveSettings({ claudeKey: null }))}>
+                Remove it
+              </button>
+            )}
+          </span>
         </label>
 
         <label className="flex flex-col gap-2">

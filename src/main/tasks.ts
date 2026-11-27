@@ -1,7 +1,7 @@
 import { shell } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { extname, join } from 'node:path'
 import { isEleven, MEDIA_MODELS } from '../shared/models'
 import type { GenerateRequest, MediaModel, ModelSpec, Ref, Task } from '../shared/types'
 import { db, dirs } from './db'
@@ -103,6 +103,18 @@ function startEleven(model: MediaModel, spec: ModelSpec, req: GenerateRequest) {
   }
   notify()
   return ids
+}
+
+// Your own footage for a shot (the supplier's clip, or one you filmed): kept as a finished job, so a shot uses it exactly
+// like a clip it generated.
+export async function addFootage(name: string, bytes: Uint8Array) {
+  const id = `footage-${randomUUID()}`
+  const file = id + (extname(name).toLowerCase() || '.mp4')
+  await writeFile(join(dirs.media, file), bytes)
+  db.prepare("INSERT INTO tasks (id, model_id, variant, label, prompt, input, state, files, created_at, completed_at) VALUES (?, 'footage', 'image', 'Your footage', ?, '{}', 'success', ?, ?, ?)")
+    .run(id, name, JSON.stringify([file]), Date.now(), Date.now())
+  notify()
+  return id
 }
 
 export const starTask = (id: string, on: boolean) => (db.prepare('UPDATE tasks SET starred = ? WHERE id = ?').run(on ? 1 : 0, id), notify())

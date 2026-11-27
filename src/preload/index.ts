@@ -11,7 +11,7 @@ const on = <T>(channel: string) => (cb: (v: T) => void) => {
 
 const api = {
   settings: (): Promise<Settings> => ipcRenderer.invoke('settings:get'),
-  saveSettings: (s: { apiKey?: string; elevenKey?: string; about?: string; model?: string; agentBudget?: number }): Promise<Settings> => ipcRenderer.invoke('settings:set', s),
+  saveSettings: (s: { apiKey?: string; elevenKey?: string; claudeKey?: string | null; about?: string; model?: string; agentBudget?: number }): Promise<Settings> => ipcRenderer.invoke('settings:set', s),
   elevenVoices: (): Promise<Voice[]> => ipcRenderer.invoke('eleven:voices'),
   refreshVoices: (): Promise<Voice[]> => ipcRenderer.invoke('eleven:refresh'),
   addVoice: (text: string): Promise<{ voice: Voice; list: Voice[] }> => ipcRenderer.invoke('eleven:add', text),
@@ -37,10 +37,10 @@ const api = {
   restoreSeries: (id: string): Promise<void> => ipcRenderer.invoke('series:restore', id),
   writeSeries: (idea: string, episodes: number, seconds: number, cast: string[], style?: { text?: string; refs?: Attachment[] }, elements?: string[]): Promise<{ series: Series; created: Character[] }> =>
     ipcRenderer.invoke('series:write', idea, episodes, seconds, cast, style, elements),
-  writeAds: (product: { description: string; photos: Attachment[]; id?: string }, ads: number, seconds: number, cast: string[], elements: string[]): Promise<{ series: Series; created: Character[] }> =>
-    ipcRenderer.invoke('ads:write', product, ads, seconds, cast, elements),
+  writeAds: (product: { description: string; photos: Attachment[]; id?: string }, ads: number, seconds: number, cast: string[], elements: string[], viral?: boolean, videoModel?: string): Promise<{ series: Series; created: Character[] }> =>
+    ipcRenderer.invoke('ads:write', product, ads, seconds, cast, elements, viral, videoModel),
   planAds: (s: Series, count: number): Promise<{ episodes: Episode[]; created: Character[] }> => ipcRenderer.invoke('ads:plan', s, count),
-  writeScript: (s: Series, index: number): Promise<{ beats: string; scenes: Scene[]; by: string; format?: string; created?: Character[] }> => ipcRenderer.invoke('series:script', s, index),
+  writeScript: (s: Series, index: number): Promise<{ beats: string; scenes: Scene[]; by: string; format?: string; created?: Character[]; textHooks?: string[] }> => ipcRenderer.invoke('series:script', s, index),
   directScript: (s: Series, index: number, scenes: Scene[]): Promise<{ plans: (ShotPlan | undefined)[]; by: string; failed: number }> => ipcRenderer.invoke('series:direct', s, index, scenes),
   improveScene: (s: Series, index: number, scenes: Scene[], at: number, note = ''): Promise<{ scene: Scene; by: string }> => ipcRenderer.invoke('series:improveScene', s, index, scenes, at, note),
   reviewScript: (s: Series, index: number, scenes: Scene[], writtenBy?: string): Promise<{ verdict: 'ready' | 'fix'; summary: string; issues: ReviewIssue[]; by: string }> =>
@@ -60,6 +60,14 @@ const api = {
   deleteEdit: (id: string): Promise<void> => ipcRenderer.invoke('edits:delete', id),
   renderEdit: (req: ProjectRender): Promise<string> => ipcRenderer.invoke('edits:render', req),
   wordsIn: (ref: Ref, from: number, to: number): Promise<{ text: string; start: number; end: number }[]> => ipcRenderer.invoke('edits:words', ref, from, to),
+  waveform: (ref: Ref): Promise<Ref> => ipcRenderer.invoke('edits:waveform', ref),
+  extractSound: (ref: Ref, from: number, to: number, speed: number, reverse = false): Promise<{ ref: Ref; seconds: number }> => ipcRenderer.invoke('edits:extractSound', ref, from, to, speed, reverse),
+  versions: (id: string): Promise<{ id: string; at: number; label: string }[]> => ipcRenderer.invoke('edits:versions', id),
+  version: (id: string): Promise<EditProject | null> => ipcRenderer.invoke('edits:version', id),
+  saveVersion: (p: EditProject, label: string): Promise<void> => ipcRenderer.invoke('edits:saveVersion', p, label),
+  sounds: (): Promise<{ id: string; label: string }[]> => ipcRenderer.invoke('edits:sounds'),
+  sound: (name: string): Promise<Ref> => ipcRenderer.invoke('edits:sound', name),
+  cover: (file: string, t: number): Promise<Ref> => ipcRenderer.invoke('edits:cover', file, t),
   send: (req: SendRequest): Promise<void> => ipcRenderer.invoke('chat:send', req),
   regenerate: (chatId: string, model: string, thinking: boolean, agent: boolean): Promise<void> =>
     ipcRenderer.invoke('chat:regenerate', chatId, model, thinking, agent),
@@ -69,12 +77,14 @@ const api = {
 
   saveFile: (name: string, mime: string, bytes: Uint8Array): Promise<Attachment> => ipcRenderer.invoke('files:save', name, mime, bytes),
   reveal: (ref: Ref): Promise<void> => ipcRenderer.invoke('files:reveal', ref),
+  missing: (refs: Ref[]): Promise<string[]> => ipcRenderer.invoke('files:missing', refs),
   saveAs: (ref: Ref): Promise<void> => ipcRenderer.invoke('files:saveAs', ref),
   openData: (): Promise<void> => ipcRenderer.invoke('files:openData'),
 
   tasks: (): Promise<Task[]> => ipcRenderer.invoke('tasks:list'),
   generate: (req: GenerateRequest): Promise<string[]> => ipcRenderer.invoke('tasks:generate', req),
   starTask: (id: string, on: boolean): Promise<void> => ipcRenderer.invoke('tasks:star', id, on),
+  addFootage: (name: string, bytes: Uint8Array): Promise<string> => ipcRenderer.invoke('tasks:footage', name, bytes),
   enhance: (prompt: string, kind: MediaKind, modelLabel: string): Promise<string> => ipcRenderer.invoke('create:enhance', prompt, kind, modelLabel),
   transcribe: (recording: Ref): Promise<string> => ipcRenderer.invoke('audio:transcribe', recording),
   micAccess: (): Promise<boolean> => ipcRenderer.invoke('audio:micAccess'),
