@@ -3,6 +3,7 @@
   "productName": "locco",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "Personal AI app: chat and image studio on kie.ai",
   "main": "out/main/index.js",
   "scripts": {

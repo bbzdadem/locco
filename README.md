@@ -64,3 +64,7 @@ scripts/        Model sync and self-checks
 ```
 
 `PLAN.md` has the original design notes.
+
+## License
+
+[MIT](LICENSE)

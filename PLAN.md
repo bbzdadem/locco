@@ -23,7 +23,7 @@ It has three surfaces in one window:
 │ Logo v2        ││ ┌──────────────────────────────────────────┐ │
 │ ── Yesterday ─ ││ │ Message…                    📎 🎙  ▲    │ │
 │                ││ │ [Claude Sonnet 5.5 ▾] [Thinking ◦]       │ │
-│ 429.5 credits  ││ └──────────────────────────────────────────┘ │
+│ 100.0 credits  ││ └──────────────────────────────────────────┘ │
 │ ⚙ Settings     │└──────────────────────────────────────────────┘
 └────────────────┘
 ┌─ Create ─────────────────────────────────────────────────────────┐
@@ -42,7 +42,7 @@ It copies the layout patterns, not those products' logos or branding. The look i
 
 ---
 
-## kie.ai API: what matters (checked against your account: key works, 429.5 credits)
+## kie.ai API: what matters
 
 **Basics.** The base URL is `https://api.kie.ai` and every request sends `Authorization: Bearer KEY`. Errors come back as **HTTP 200 with a non-200 `code` in the body**, so every call has to check `code`. The rate limit is 20 new jobs per 10 s, with 100+ running at once.
 
